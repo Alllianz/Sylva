@@ -83,9 +83,10 @@ pub fn run_tree_session(
         "1m" => 5,
         "5m" => 4,
         "15m" => 4,
-        "1h" | "1H" => 4, // 4 horas para 1H: retorno esperado de 1.2% - 2.5%, superando con holgura las comisiones
+        "1h" | "1H" => 4, // 4 horas para 1H: retorno acumulado que supera holgadamente comisiones
         "4h" | "4H" => 2,
-        _ => 4,
+        "1d" | "1D" => 1, // 1 día para 1D: predicción del cierre de la siguiente jornada
+        _ => 1,
     };
 
     println!("\n  🎯 Configuración del Horizonte Causal Multi-Vela (Target Horizon):");
