@@ -1,0 +1,38 @@
+pub const TOTAL_FEATURES: usize = 32;
+
+pub fn feature_names() -> [&'static str; TOTAL_FEATURES] {
+    [
+        "F1: Long-term Rel Volume (SMA 10k)",
+        "F2: Normalized Total Range",
+        "F3: Upper Wick Ratio",
+        "F4: Lower Wick Ratio",
+        "F5: Real Candle Body",
+        "F6: 10-Bar Return Momentum",
+        "F7: OLS Linear Slope (10 Bars)",
+        "F8: Donchian Stochastic Pos (10 Bars)",
+        "F9: Price Z-Score (10 Bars)",
+        "F10: Slope Acceleration",
+        "F11: Kaufman Efficiency Ratio",
+        "F12: Markov Current State (St / 5.0)",
+        "F13: Markov Previous State (St-1 / 5.0)",
+        "F14: Dist to EMA-20",
+        "F15: Dist to Macro EMA-200 (HL/2)",
+        "F16: Macro Regime Flag (Close > EMA200)",
+        "F17: Medium-term Rel Volume (SMA 20)",
+        "F18: Volume Flow Ratio (SMA5 / SMA20)",
+        "F19: Volume Adjusted Amplitude",
+        "F20: Volume-Price Trend (VPT 10)",
+        "F21: Directional Signed Volume Force",
+        "F22: ATR(10) Normalized / Close",
+        "F23: MACD Histogram / Close",
+        "F24: Volatility Ratio (ATR5 / ATR50)",
+        "F25: Channel Width (10 Bars)",
+        "F26: Intra-Candle Volatility ROC",
+        "F27: RSI-14 Centered ([-0.5, +0.5])",
+        "F28: Parkinson Extreme Volatility",
+        "F29: Weekly Cycle Sine",
+        "F30: Weekly Cycle Cosine",
+        "F31: Fractional Differentiation (Memory)",
+        "F32: Account Commercial Position State",
+    ]
+}

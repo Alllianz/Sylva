@@ -1,0 +1,24 @@
+# Artefactos de compilación de Rust
+/target/
+**/*.rs.bk
+*.pdb
+*.rlib
+
+# Base de datos local de velas
+candles.db
+candles.db-shm
+candles.db-wal
+*.db
+*.sqlite
+
+# Dashboards HTML generados
+dashboard/
+*.html
+
+# Entornos y editores
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
