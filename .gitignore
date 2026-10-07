@@ -11,9 +11,13 @@ candles.db-wal
 *.db
 *.sqlite
 
-# Dashboards HTML generados
-dashboard/
+# Reportes HTML generados en la raíz del proyecto (evita subir archivos pesados)
+/dashboard/
 *.html
+
+# Asegurar explícitamente que todo el código fuente en src/dashboard esté incluido
+!src/dashboard/
+!src/dashboard/**
 
 # Entornos y editores
 .idea/
