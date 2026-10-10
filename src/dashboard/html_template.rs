@@ -372,7 +372,7 @@ pub fn render_html_dashboard(
                 <div class="equity-toggle-container">
                     <button class="toggle-btn active-both" id="btnBoth" onclick="switchMode('both')">🌐 Ver Ambas</button>
                     <button class="toggle-btn" id="btnNom" onclick="switchMode('nom')">💵 Nominal ($)</button>
-                    <button class="toggle-btn" id="btnPct" onclick="switchMode('pct')">📈 Porcentual / Compuesto (%)</button>
+                    <button class="toggle-btn" id="btnPct" onclick="switchMode('pct')">📈 Porcentual / Compuesto (Escala Log)</button>
                 </div>
             </div>
             <div class="chart-canvas-container">
@@ -387,8 +387,8 @@ pub fn render_html_dashboard(
         const eqPct = {equity_pct_json};
 
         const datasetCompuesto = {{
-            label: 'Cuenta Compuesta ($)',
-            data: eqPct,
+            label: 'Cuenta Compuesta ($ - Escala Log)',
+            data: eqPct.map(v => Math.max(v, 1.0)),
             borderColor: '#00E676',
             backgroundColor: 'rgba(0, 230, 118, 0.08)',
             borderWidth: 2.2,
@@ -455,11 +455,12 @@ pub fn render_html_dashboard(
                         ticks: {{ color: '#8C98A5', maxTicksLimit: 14 }}
                     }},
                     y: {{
+                        type: 'linear',
                         grid: {{ color: 'rgba(255, 255, 255, 0.05)' }},
                         ticks: {{
                             color: '#8C98A5',
                             callback: function(value) {{
-                                return '$' + value.toLocaleString();
+                                return '$' + Number(value).toLocaleString();
                             }}
                         }}
                     }}
@@ -479,12 +480,15 @@ pub fn render_html_dashboard(
             if (mode === 'both') {{
                 btnBoth.className = 'toggle-btn active-both';
                 chart.data.datasets = [datasetCompuesto, datasetNominal];
+                chart.options.scales.y.type = 'linear';
             }} else if (mode === 'nom') {{
                 btnNom.className = 'toggle-btn active-nom';
                 chart.data.datasets = [datasetNominal];
+                chart.options.scales.y.type = 'linear';
             }} else if (mode === 'pct') {{
                 btnPct.className = 'toggle-btn active-pct';
                 chart.data.datasets = [datasetCompuesto];
+                chart.options.scales.y.type = 'logarithmic';
             }}
             chart.update();
         }}

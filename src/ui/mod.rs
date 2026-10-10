@@ -31,7 +31,7 @@ pub async fn run_interactive_app() -> Result<(), Box<dyn Error + Send + Sync>> {
         println!("  ── 🌲 GBDT ALLIANZ (13 Features Optimizadas - Poda Cuantitativa de 19 Variables) ──");
         println!("  [3] 🚀 Online GBDT Convencional (Streaming Hoeffding Trees & Olvido Exponencial)");
         println!("  [4] 🔬 Árboles Bayesianos Online (Normal-Inverse-Gamma & Incertidumbre Epistémica)");
-        println!("  [5] 🧬 Auto-Optimización Evolutiva Astro EVO (Búsqueda Determinista Multihilo)");
+        println!("  [5] 🧬 Auto-Optimización Evolutiva Sylva EVO (Búsqueda Determinista Multihilo)");
         println!("  [6] ⚡ Auto-Optimización Grid Online (Purged Walk-Forward Causal)");
         println!("  [7] 🌲 GBDT Clásico Batch & Grid Search (Purged K-Fold CV & Multi-Grid)");
         println!("  [8] 📈 Elastic Net Regularizado (L1 Lasso + L2 Ridge Benchmark)");
@@ -39,7 +39,7 @@ pub async fn run_interactive_app() -> Result<(), Box<dyn Error + Send + Sync>> {
         println!("  ── 🌐 MODELOS GENERALES (32 Variables / Selección Libre de Features) ──");
         println!("  [9] 🚀 Online GBDT Convencional General");
         println!("  [10] 🔬 Árboles Bayesianos Online General");
-        println!("  [11] 🧬 Auto-Optimización Evolutiva Astro EVO General");
+        println!("  [11] 🧬 Auto-Optimización Evolutiva Sylva EVO General");
         println!("  [12] ⚡ Auto-Optimización Grid Online General");
         println!("  [13] 🌲 GBDT Clásico Batch & Grid Search General");
         println!("  [14] 📈 Elastic Net Regularizado General");

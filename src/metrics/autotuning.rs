@@ -119,7 +119,7 @@ pub fn calculate_capital_max_dd_ratio(final_cap: f64, max_dd_nom: f64) -> f64 {
     }
 }
 
-/// Autotuning Score Institucional idéntico al de Astro Evo Max:
+/// Autotuning Score Institucional idéntico al de Sylva Evo Max:
 /// Combina la consistencia de pendiente IS/OOS, el ratio de retorno vs Max Drawdown y la linealidad compuesta R².
 pub fn calculate_autotuning_score(
     slope_ratio: f64,
@@ -130,8 +130,8 @@ pub fn calculate_autotuning_score(
     (0.35 * slope_ratio + 0.35 * cap_dd_norm + 0.30 * composite_linearity) * 100.0
 }
 
-/// Evalúa el Fitness institucional exacto de Astro EVO Max sobre un reporte de backtest
-pub fn evaluate_report_astro_fitness(
+/// Evalúa el Fitness institucional exacto de Sylva EVO Max sobre un reporte de backtest
+pub fn evaluate_report_sylva_fitness(
     report: &BacktestReport,
     oos_start_idx: usize,
     is_start_idx: usize,
@@ -156,3 +156,5 @@ pub fn evaluate_report_astro_fitness(
     let cap_dd_ratio = calculate_capital_max_dd_ratio(report.final_capital, report.max_drawdown_amount);
     calculate_autotuning_score(slope_ratio, cap_dd_ratio, lin_eval.composite_linearity_score)
 }
+
+pub use evaluate_report_sylva_fitness as evaluate_report_astro_fitness;

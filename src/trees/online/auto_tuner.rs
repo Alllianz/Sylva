@@ -186,18 +186,19 @@ impl OnlineGbdtAutoTuner {
                     max_depth: cfg.max_depth,
                     min_samples_leaf: cfg.min_samples_split,
                     n_trees: cfg.n_trees,
+                    target_horizon: self.config.target_horizon,
                     cv_mse: mse,
                     cv_mda: mda * 100.0,
                     cv_ic: rank_ic,
                     best_thr_long: tune_res.best_threshold_long,
                     best_thr_short: tune_res.best_threshold_short,
-                    is_astro_fitness: tune_res.best_fitness,
+                    is_sylva_fitness: tune_res.best_fitness,
                     rank_slope: 0,
                     rank_cap_dd: 0,
                     rank_r2: 0,
                     rank_smoothness: 0,
                     weighted_avg_rank: 0.0,
-                    astro_rank_fitness: 0.0,
+                    sylva_rank_fitness: 0.0,
                     raw_slope_ratio: 0.0,
                     raw_cap_dd_ratio: 0.0,
                     raw_r2_score: 0.0,
@@ -215,12 +216,12 @@ impl OnlineGbdtAutoTuner {
             if (idx + 1) % 5 == 0 || idx == total_cands - 1 {
                 println!(
                     "  • Candidato [{:>2}/{}]: Depth: {} | Trees: {:>2} | LR: {:.2} | Decay: {:.3} ➔ Fitness: {:>6.2} | Profit: +${:.2} ({:+.2}%)",
-                    idx + 1, total_cands, report.max_depth, report.n_trees, self.config.candidate_configs[idx].learning_rate, self.config.candidate_configs[idx].decay_factor, report.is_astro_fitness, report.report_nom.net_profit, report.report_nom.total_return_pct
+                    idx + 1, total_cands, report.max_depth, report.n_trees, self.config.candidate_configs[idx].learning_rate, self.config.candidate_configs[idx].decay_factor, report.is_sylva_fitness, report.report_nom.net_profit, report.report_nom.total_return_pct
                 );
             }
         }
 
-        // Ranking Multicriterio Astro EVO
+        // Ranking Multicriterio Sylva EVO
         let cand_reports: Vec<GbdtGridCandidateReport> = candidate_results.iter().map(|(c, _)| c.clone()).collect();
         let rankings = compute_multicriteria_rankings(
             &cand_reports,
@@ -250,14 +251,14 @@ impl OnlineGbdtAutoTuner {
                 cand.rank_r2 = r.rank_r2;
                 cand.rank_smoothness = r.rank_smoothness;
                 cand.weighted_avg_rank = r.weighted_avg_rank;
-                cand.astro_rank_fitness = r.astro_rank_fitness;
+                cand.sylva_rank_fitness = r.sylva_rank_fitness;
             }
         }
 
         candidate_results.sort_by(|a, b| a.0.weighted_avg_rank.partial_cmp(&b.0.weighted_avg_rank).unwrap_or(std::cmp::Ordering::Equal));
 
         println!("\n=======================================================================================================================================");
-        println!("                         🏆 LEADERBOARD DE AUTO-OPTIMIZACIÓN ONLINE GBDT (STREAMING TREES - PUESTOS ASTRO EVO)                          ");
+        println!("                         🏆 LEADERBOARD DE AUTO-OPTIMIZACIÓN ONLINE GBDT (STREAMING TREES - PUESTOS SYLVA EVO)                          ");
         println!("=======================================================================================================================================");
         println!("  {:<5} | {:<5} | {:<10} | {:<5} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>12} | {:>15}",
             "Puesto", "Depth", "Grace/Split", "Trees", "Rank Pond.", "Rank R²(2x)", "Rank Slope", "Rank Cap/DD", "Rank Smooth", "Net Profit", "Umbrales (L/S)"

@@ -204,18 +204,19 @@ impl BayesianTreeOptimizer {
                 max_depth,
                 min_samples_leaf: 20,
                 n_trees,
+                target_horizon: 1,
                 cv_mse: mse,
                 cv_mda: mda * 100.0,
                 cv_ic: rank_ic,
                 best_thr_long: tune_res.best_threshold_long,
                 best_thr_short: tune_res.best_threshold_short,
-                is_astro_fitness: tune_res.best_fitness,
+                is_sylva_fitness: tune_res.best_fitness,
                 rank_slope: 0,
                 rank_cap_dd: 0,
                 rank_r2: 0,
                 rank_smoothness: 0,
                 weighted_avg_rank: 0.0,
-                astro_rank_fitness: 0.0,
+                sylva_rank_fitness: 0.0,
                 raw_slope_ratio: 0.0,
                 raw_cap_dd_ratio: 0.0,
                 raw_r2_score: 0.0,
@@ -245,7 +246,7 @@ impl BayesianTreeOptimizer {
 
         for (i, (rep, mod_obj, cfg_obj)) in lhc_results.into_iter().enumerate() {
             let pt = &initial_points[i];
-            let fitness = rep.is_astro_fitness;
+            let fitness = rep.is_sylva_fitness;
             println!(
                 "  • LHC [{:>2}/{}]: Trees: {:>2} | Depth: {} | LR: {:.3} | Decay: {:.4} | Kappa: {:.2} ➔ Fitness: {:>6.2} | Profit: +${:.2}",
                 i + 1, initial_points.len(), cfg_obj.n_trees, cfg_obj.max_depth, cfg_obj.learning_rate, cfg_obj.decay_factor, cfg_obj.uncertainty_penalty_kappa, fitness, rep.report_nom.net_profit
@@ -306,7 +307,7 @@ impl BayesianTreeOptimizer {
 
             let curr_idx = evaluated_results.len();
             let (rep, mod_obj, cfg_obj) = evaluate_point(&best_point, curr_idx)?;
-            let fitness = rep.is_astro_fitness;
+            let fitness = rep.is_sylva_fitness;
 
             println!(
                 "  • BO Paso [{:>2}/{}]: Trees: {:>2} | Depth: {} | LR: {:.3} | Decay: {:.4} | EI: {:.5} ➔ Fitness: {:>6.2} | Retorno: +${:.2}",
@@ -318,7 +319,7 @@ impl BayesianTreeOptimizer {
             evaluated_results.push((rep, mod_obj, cfg_obj));
         }
 
-        // 4. Ranking Multicriterio Astro EVO
+        // 4. Ranking Multicriterio Sylva EVO
         let cand_reports: Vec<GbdtGridCandidateReport> = evaluated_results.iter().map(|(c, _, _)| c.clone()).collect();
         let rankings = compute_multicriteria_rankings(
             &cand_reports,
@@ -348,14 +349,14 @@ impl BayesianTreeOptimizer {
                 cand.rank_r2 = r.rank_r2;
                 cand.rank_smoothness = r.rank_smoothness;
                 cand.weighted_avg_rank = r.weighted_avg_rank;
-                cand.astro_rank_fitness = r.astro_rank_fitness;
+                cand.sylva_rank_fitness = r.sylva_rank_fitness;
             }
         }
 
         evaluated_results.sort_by(|a, b| a.0.weighted_avg_rank.partial_cmp(&b.0.weighted_avg_rank).unwrap_or(std::cmp::Ordering::Equal));
 
         println!("\n=======================================================================================================================================");
-        println!("                     🏆 LEADERBOARD DE OPTIMIZACIÓN BAYESIANA DE ÁRBOLES ONLINE (PUESTOS ASTRO EVO)                                   ");
+        println!("                     🏆 LEADERBOARD DE OPTIMIZACIÓN BAYESIANA DE ÁRBOLES ONLINE (PUESTOS SYLVA EVO)                                   ");
         println!("=======================================================================================================================================");
         println!("  {:<5} | {:<5} | {:<7} | {:<6} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>12} | {:>15}",
             "Puesto", "Depth", "Trees", "Decay", "Rank Pond.", "Rank R²(2x)", "Rank Slope", "Rank Cap/DD", "Rank Smooth", "Net Profit", "Umbrales (L/S)"

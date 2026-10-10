@@ -2,9 +2,9 @@ use crate::data::db::Kline;
 use crate::engine::equation_model::EquationModel;
 use crate::engine::simulator::BacktestSimulator;
 use crate::engine::types::BacktestConfig;
-use crate::metrics::autotuning::evaluate_report_astro_fitness;
+use crate::metrics::autotuning::evaluate_report_sylva_fitness;
 
-/// Resultado de la calibración de umbrales con Fitness Astro EVO
+/// Resultado de la calibración de umbrales con Fitness Sylva EVO
 #[derive(Debug, Clone)]
 pub struct TunerResult {
     pub best_threshold_long: f32,
@@ -13,7 +13,7 @@ pub struct TunerResult {
     pub total_candidates_tested: usize,
 }
 
-/// Calibrador Universal de Umbrales Óptimos mediante la función de Fitness de Astro EVO
+/// Calibrador Universal de Umbrales Óptimos mediante la función de Fitness de Sylva EVO
 pub struct ThresholdTuner {
     pub backtest_config: BacktestConfig,
 }
@@ -23,7 +23,7 @@ impl ThresholdTuner {
         Self { backtest_config }
     }
 
-    /// Calibra los umbrales óptimos buscando maximizar el Fitness de Astro EVO exclusivamente en In-Sample
+    /// Calibra los umbrales óptimos buscando maximizar el Fitness de Sylva EVO exclusivamente en In-Sample
     pub fn tune<F, M>(
         &self,
         klines: &[Kline],
@@ -52,7 +52,7 @@ impl ThresholdTuner {
                 total_tested += 1;
                 let mut model = model_factory(thr_l, thr_s);
                 let report = sim.run_range(&mut model, klines, is_start_idx, oos_start_idx);
-                let fitness = evaluate_report_astro_fitness(&report, oos_start_idx, is_start_idx);
+                let fitness = evaluate_report_sylva_fitness(&report, oos_start_idx, is_start_idx);
 
                 if fitness > best_fitness {
                     best_fitness = fitness;

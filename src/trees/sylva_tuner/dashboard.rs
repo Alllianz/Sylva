@@ -1,20 +1,22 @@
 use crate::data::db::Kline;
-use crate::trees::astro_tuner::types::AstroTreeAutoTuningResult;
+use crate::trees::sylva_tuner::types::SylvaTreeAutoTuningResult;
 use std::fs::{create_dir_all, File};
 use std::io::Write;
 
-/// Genera un dashboard interactivo HTML para la auto-optimización evolutiva Astro EVO de árboles
-pub fn generate_astro_tree_tuning_dashboard(
+pub use generate_sylva_tree_tuning_dashboard as generate_astro_tree_tuning_dashboard;
+
+/// Genera un dashboard interactivo HTML para la auto-optimización evolutiva Sylva EVO de árboles
+pub fn generate_sylva_tree_tuning_dashboard(
     title: &str,
     tf: &str,
     _klines: &[Kline],
-    result: &AstroTreeAutoTuningResult,
+    result: &SylvaTreeAutoTuningResult,
     feature_space_label: &str,
 ) -> Result<String, std::io::Error> {
     let clean_title = sanitize_slug(title);
     let dashboard_dir = format!("dashboard/{}", tf);
     create_dir_all(&dashboard_dir)?;
-    let filename = format!("astro_tree_tuning_{}_{}.html", tf, clean_title);
+    let filename = format!("sylva_tree_tuning_{}_{}.html", tf, clean_title);
     let full_path = format!("{}/{}", dashboard_dir, filename);
     let mut file = File::create(&full_path)?;
 
@@ -74,14 +76,15 @@ pub fn generate_astro_tree_tuning_dashboard(
 
     let mut pct_equity_points = String::new();
     for (t, eq) in &champ.report_pct.equity_curve {
-        pct_equity_points.push_str(&format!("{{ x: {}, y: {:.2} }},", t, eq));
+        let safe_eq = eq.max(1.0);
+        pct_equity_points.push_str(&format!("{{ x: {}, y: {:.2} }},", t, safe_eq));
     }
 
     let html = format!(r#"<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Astro EVO Auto-Tuning Dashboard | Quant Equation Lab</title>
+    <title>Sylva EVO Auto-Tuning Dashboard | Quant Equation Lab</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {{
@@ -144,6 +147,21 @@ pub fn generate_astro_tree_tuning_dashboard(
             margin-bottom: 12px;
             height: 440px;
         }}
+        .toggle-btn {{
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #94a3b8;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }}
+        .toggle-btn:hover {{ background: #334155; color: #fff; }}
+        .toggle-btn.active-both {{ background: #3b82f6; color: #fff; border-color: #3b82f6; }}
+        .toggle-btn.active-nom {{ background: #10b981; color: #fff; border-color: #10b981; }}
+        .toggle-btn.active-pct {{ background: #a855f7; color: #fff; border-color: #a855f7; }}
         table {{ width: 100%; border-collapse: collapse; }}
         th, td {{ padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border-color); font-size: 11px; }}
         th {{ color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 10.5px; }}
@@ -152,14 +170,14 @@ pub fn generate_astro_tree_tuning_dashboard(
 <body>
     <div class="header">
         <div>
-            <span class="badge">🧬 Astro EVO Auto-Tuning Engine</span>
+            <span class="badge">🧬 Sylva EVO Auto-Tuning Engine</span>
             <h1 style="font-size: 20px; font-weight: 800; margin-top: 4px;">{}</h1>
             <p style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">
                 Temporalidad: <strong>{}</strong> | Espacio: <strong>{}</strong> | Total Evaluados: <strong>{}</strong>
             </p>
         </div>
         <div style="text-align: right;">
-            <div style="font-size: 11px; color: var(--text-muted);">Puesto Astro EVO: #1 (Pond: {:.2})</div>
+            <div style="font-size: 11px; color: var(--text-muted);">Puesto Sylva EVO: #1 (Pond: {:.2})</div>
             <div style="font-size: 20px; font-weight: 800; color: {}; margin-top: 2px;">+${:.2} ({:+.2}%)</div>
         </div>
     </div>
@@ -212,12 +230,22 @@ pub fn generate_astro_tree_tuning_dashboard(
         </div>
     </div>
 
-    <div class="chart-container">
-        <canvas id="equityChart"></canvas>
+    <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 14px; margin-bottom: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+            <div style="font-size: 14px; font-weight: 700; color: #f8fafc;">📈 CURVAS DE RENDIMIENTO (EQUITY CURVE)</div>
+            <div style="display: flex; gap: 8px;">
+                <button id="btnBoth" class="toggle-btn active-both" onclick="switchSylvaMode('both')">🌐 Ver Ambas</button>
+                <button id="btnNom" class="toggle-btn" onclick="switchSylvaMode('nom')">💵 Nominal ($)</button>
+                <button id="btnPct" class="toggle-btn" onclick="switchSylvaMode('pct')">📈 Compuesta (Escala Log)</button>
+            </div>
+        </div>
+        <div class="chart-container" style="height: 400px; margin-bottom: 0;">
+            <canvas id="equityChart"></canvas>
+        </div>
     </div>
 
     <div class="stat-card">
-        <h3 style="font-size: 15px; margin-bottom: 12px;">🏆 Leaderboard General Astro EVO (Ranking Multicriterio por Puestos)</h3>
+        <h3 style="font-size: 15px; margin-bottom: 12px;">🏆 Leaderboard General Sylva EVO (Ranking Multicriterio por Puestos)</h3>
         <table>
             <thead>
                 <tr>
@@ -247,32 +275,32 @@ pub fn generate_astro_tree_tuning_dashboard(
 
     <script>
         const ctx = document.getElementById('equityChart').getContext('2d');
-        new Chart(ctx, {{
+        const dsNom = {{
+            label: 'Campeón: Curva Equity Nominal ($)',
+            data: [{}],
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16, 185, 129, 0.05)',
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 3,
+            fill: true,
+        }};
+        const dsPct = {{
+            label: 'Campeón: Curva Equity Compuesta ($ - Escala Log)',
+            data: [{}],
+            borderColor: '#a855f7',
+            backgroundColor: 'rgba(168, 85, 247, 0.03)',
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 3,
+            borderDash: [5, 5],
+            fill: false,
+        }};
+
+        const chart = new Chart(ctx, {{
             type: 'line',
             data: {{
-                datasets: [
-                    {{
-                        label: 'Campeón: Curva Equity Nominal ($)',
-                        data: [{}],
-                        borderColor: '#10b981',
-                        backgroundColor: 'rgba(16, 185, 129, 0.05)',
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        pointHoverRadius: 3,
-                        fill: true,
-                    }},
-                    {{
-                        label: 'Campeón: Curva Equity Compuesta ($)',
-                        data: [{}],
-                        borderColor: '#a855f7',
-                        backgroundColor: 'rgba(168, 85, 247, 0.03)',
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        pointHoverRadius: 3,
-                        borderDash: [5, 5],
-                        fill: false,
-                    }}
-                ]
+                datasets: [dsNom, dsPct]
             }},
             options: {{
                 responsive: true,
@@ -289,8 +317,12 @@ pub fn generate_astro_tree_tuning_dashboard(
                         offset: false
                     }},
                     y: {{
+                        type: 'linear',
                         grid: {{ color: '#1f293d' }},
-                        ticks: {{ color: '#94a3b8' }}
+                        ticks: {{
+                            color: '#94a3b8',
+                            callback: function(value) {{ return '$' + Number(value).toLocaleString(); }}
+                        }}
                     }}
                 }},
                 plugins: {{
@@ -298,6 +330,30 @@ pub fn generate_astro_tree_tuning_dashboard(
                 }}
             }}
         }});
+
+        function switchSylvaMode(mode) {{
+            const btnBoth = document.getElementById('btnBoth');
+            const btnNom = document.getElementById('btnNom');
+            const btnPct = document.getElementById('btnPct');
+            btnBoth.className = 'toggle-btn';
+            btnNom.className = 'toggle-btn';
+            btnPct.className = 'toggle-btn';
+
+            if (mode === 'both') {{
+                btnBoth.className = 'toggle-btn active-both';
+                chart.data.datasets = [dsNom, dsPct];
+                chart.options.scales.y.type = 'linear';
+            }} else if (mode === 'nom') {{
+                btnNom.className = 'toggle-btn active-nom';
+                chart.data.datasets = [dsNom];
+                chart.options.scales.y.type = 'linear';
+            }} else if (mode === 'pct') {{
+                btnPct.className = 'toggle-btn active-pct';
+                chart.data.datasets = [dsPct];
+                chart.options.scales.y.type = 'logarithmic';
+            }}
+            chart.update();
+        }}
     </script>
 </body>
 </html>"#,
@@ -345,7 +401,7 @@ pub fn generate_astro_tree_tuning_dashboard(
     );
 
     file.write_all(html.as_bytes())?;
-    println!("  🌐 Astro-Evo Tree Tuning Dashboard interactivo generado en: {}", full_path);
+    println!("  🌐 Sylva-Evo Tree Tuning Dashboard interactivo generado en: {}", full_path);
     Ok(full_path)
 }
 

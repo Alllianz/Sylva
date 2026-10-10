@@ -1,4 +1,5 @@
 use crate::data::db::Kline;
+use crate::engine::dynamic_threshold::{calculate_volatility_factor, ThresholdMode};
 use crate::engine::equation_model::EquationModel;
 use crate::engine::types::SignalAction;
 use crate::features::cached::CachedIndicators;
@@ -21,6 +22,7 @@ pub struct OnlineGbdtEquationModel {
     pub prev_close: Option<f64>,
     pub last_predicted_alpha: f32,
     pub cached_indicators: Option<Arc<CachedIndicators>>,
+    pub threshold_mode: ThresholdMode,
 }
 
 impl OnlineGbdtEquationModel {
@@ -42,6 +44,7 @@ impl OnlineGbdtEquationModel {
             prev_close: None,
             last_predicted_alpha: 0.0,
             cached_indicators: None,
+            threshold_mode: ThresholdMode::default(),
         }
     }
 
@@ -57,6 +60,11 @@ impl OnlineGbdtEquationModel {
 
     pub fn with_cached_indicators(mut self, cached: Arc<CachedIndicators>) -> Self {
         self.cached_indicators = Some(cached);
+        self
+    }
+
+    pub fn with_threshold_mode(mut self, mode: ThresholdMode) -> Self {
+        self.threshold_mode = mode;
         self
     }
 }
@@ -110,11 +118,18 @@ impl EquationModel for OnlineGbdtEquationModel {
         self.prev_features = Some(feats);
         self.prev_close = Some(curr_close);
 
-        // 4. --- DISPARO DE SEÑALES ---
-        if predicted_alpha > self.threshold_long {
+        // 4. --- DISPARO DE SEÑALES (CON UMBRALES ADAPTATIVOS POR VOLATILIDAD) ---
+        let vol_factor = match self.threshold_mode {
+            ThresholdMode::DynamicAtrRatio => calculate_volatility_factor(curr_idx, self.cached_indicators.as_deref()),
+            ThresholdMode::Static => 1.0,
+        };
+        let eff_threshold_long = self.threshold_long * vol_factor;
+        let eff_threshold_short = self.threshold_short * vol_factor;
+
+        if predicted_alpha > eff_threshold_long {
             self.current_position_val = 1.0;
             SignalAction::Buy
-        } else if predicted_alpha < self.threshold_short {
+        } else if predicted_alpha < eff_threshold_short {
             self.current_position_val = -1.0;
             SignalAction::Sell
         } else {

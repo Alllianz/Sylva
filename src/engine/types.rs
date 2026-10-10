@@ -68,7 +68,7 @@ impl Default for BacktestConfig {
             fee_rate: 0.0005,
             max_holding_bars: 24,
             use_compound: false,
-            atr_sl_multiplier: 1.5,
+            atr_sl_multiplier: 0.0,
         }
     }
 }

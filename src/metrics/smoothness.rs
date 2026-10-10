@@ -1,4 +1,4 @@
-/// Módulo de cálculo de suavidad de curva de equidad, Sortino Ratio y penalización de varianza de drawdowns (Astro EVO).
+/// Módulo de cálculo de suavidad de curva de equidad, Sortino Ratio y penalización de varianza de drawdowns (Sylva EVO).
 
 #[derive(Clone, Debug, Default)]
 pub struct SmoothnessMetrics {

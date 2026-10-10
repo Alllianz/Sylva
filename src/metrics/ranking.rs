@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-/// Estructura con la información multidimensional de ranking evolutivo por Puestos (Astro EVO Max)
+/// Estructura con la información multidimensional de ranking evolutivo por Puestos (Sylva EVO Max)
 #[derive(Clone, Debug)]
 pub struct CandidateRankScore {
     pub candidate_id: String,
@@ -9,10 +9,11 @@ pub struct CandidateRankScore {
     pub rank_r2: usize,
     pub rank_smoothness: usize,
     pub weighted_avg_rank: f64,
-    pub astro_rank_fitness: f64, // Fitness normalizado para maximización (mayor es mejor)
+    pub sylva_rank_fitness: f64, // Fitness normalizado para maximización (mayor es mejor)
+    pub astro_rank_fitness: f64, // Alias retrocompatible
 }
 
-/// Computa el ranking multicriterio exacto de Astro EVO integrando:
+/// Computa el ranking multicriterio exacto de Sylva EVO integrando:
 /// 1. Consistencia de Pendiente IS/OOS (Slope Ratio más cercano a 1.0)
 /// 2. Ratio Capital / Max Drawdown (Mayor es mejor)
 /// 3. Linealidad R² Compuesta (Mayor es mejor)
@@ -97,7 +98,7 @@ pub fn compute_multicriteria_rankings<T: Clone>(
         rank_smooth_map.insert(key, idx + 1);
     }
 
-    // 5. Ponderación final del Rank (Astro EVO Max):
+    // 5. Ponderación final del Rank (Sylva EVO Max):
     // Pesos: Slope (1.0), Cap/DD (1.0), Linealidad R² (2.0), Suavidad (1.0) -> Total divisor = 5.0
     for item in items {
         let key = get_key(item);
@@ -113,7 +114,7 @@ pub fn compute_multicriteria_rankings<T: Clone>(
             / 5.0;
 
         // Fitness para maximización: 100 * (N - weighted_rank + 1) / N
-        let astro_rank_fitness = ((n as f64 - weighted_rank + 1.0) / (n as f64)) * 100.0;
+        let sylva_rank_fitness = ((n as f64 - weighted_rank + 1.0) / (n as f64)) * 100.0;
 
         results_map.insert(
             key.clone(),
@@ -124,7 +125,8 @@ pub fn compute_multicriteria_rankings<T: Clone>(
                 rank_r2: r_r2,
                 rank_smoothness: r_smooth,
                 weighted_avg_rank: weighted_rank,
-                astro_rank_fitness,
+                sylva_rank_fitness,
+                astro_rank_fitness: sylva_rank_fitness,
             },
         );
     }

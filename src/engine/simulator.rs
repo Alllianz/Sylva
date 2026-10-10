@@ -66,7 +66,7 @@ impl BacktestSimulator {
                         is_closed = true;
                         exit_p = pos.liquidation_price;
                         reason = ExitReason::Liquidation;
-                    } else if kline.open <= pos.stop_loss {
+                    } else if self.config.atr_sl_multiplier > 0.0 && kline.open <= pos.stop_loss {
                         is_closed = true;
                         exit_p = kline.open;
                         reason = ExitReason::StopLoss;
@@ -74,7 +74,7 @@ impl BacktestSimulator {
                         is_closed = true;
                         exit_p = pos.liquidation_price;
                         reason = ExitReason::Liquidation;
-                    } else if kline.low <= pos.stop_loss {
+                    } else if self.config.atr_sl_multiplier > 0.0 && kline.low <= pos.stop_loss {
                         is_closed = true;
                         exit_p = pos.stop_loss;
                         reason = ExitReason::StopLoss;
@@ -136,7 +136,7 @@ impl BacktestSimulator {
                         is_closed = true;
                         exit_p = pos.liquidation_price;
                         reason = ExitReason::Liquidation;
-                    } else if kline.open >= pos.stop_loss {
+                    } else if self.config.atr_sl_multiplier > 0.0 && kline.open >= pos.stop_loss {
                         is_closed = true;
                         exit_p = kline.open;
                         reason = ExitReason::StopLoss;
@@ -144,7 +144,7 @@ impl BacktestSimulator {
                         is_closed = true;
                         exit_p = pos.liquidation_price;
                         reason = ExitReason::Liquidation;
-                    } else if kline.high >= pos.stop_loss {
+                    } else if self.config.atr_sl_multiplier > 0.0 && kline.high >= pos.stop_loss {
                         is_closed = true;
                         exit_p = pos.stop_loss;
                         reason = ExitReason::StopLoss;
@@ -258,9 +258,12 @@ impl BacktestSimulator {
                         let notional = margin * self.config.leverage;
                         let amount = notional / price;
 
-                        let sl_dist = atr * self.config.atr_sl_multiplier;
-                        let stop_loss = price - sl_dist;
                         let liq_price = price * (1.0 - (1.0 / self.config.leverage) * 0.95);
+                        let stop_loss = if self.config.atr_sl_multiplier > 0.0 {
+                            price - (atr * self.config.atr_sl_multiplier)
+                        } else {
+                            liq_price
+                        };
 
                         current_position = Some(Position {
                             is_long: true,
@@ -325,9 +328,12 @@ impl BacktestSimulator {
                         let notional = margin * self.config.leverage;
                         let amount = notional / price;
 
-                        let sl_dist = atr * self.config.atr_sl_multiplier;
-                        let stop_loss = price + sl_dist;
                         let liq_price = price * (1.0 + (1.0 / self.config.leverage) * 0.95);
+                        let stop_loss = if self.config.atr_sl_multiplier > 0.0 {
+                            price + (atr * self.config.atr_sl_multiplier)
+                        } else {
+                            liq_price
+                        };
 
                         current_position = Some(Position {
                             is_long: false,

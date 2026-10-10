@@ -5,23 +5,27 @@ use std::error::Error;
 use std::fs::{self, File};
 use std::io::Write;
 
+fn default_h() -> usize { 1 }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GbdtGridCandidateReport {
     pub max_depth: usize,
     pub min_samples_leaf: usize,
     pub n_trees: usize,
+    #[serde(default = "default_h")]
+    pub target_horizon: usize,
     pub cv_mse: f32,
     pub cv_mda: f32,
     pub cv_ic: f32,
     pub best_thr_long: f32,
     pub best_thr_short: f32,
-    pub is_astro_fitness: f64,
+    pub is_sylva_fitness: f64,
     pub rank_slope: usize,
     pub rank_cap_dd: usize,
     pub rank_r2: usize,
     pub rank_smoothness: usize,
     pub weighted_avg_rank: f64,
-    pub astro_rank_fitness: f64,
+    pub sylva_rank_fitness: f64,
     pub raw_slope_ratio: f64,
     pub raw_cap_dd_ratio: f64,
     pub raw_r2_score: f64,
@@ -89,8 +93,8 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
                 .partial_cmp(&b.weighted_avg_rank)
                 .unwrap_or(std::cmp::Ordering::Equal)
         } else {
-            b.is_astro_fitness
-                .partial_cmp(&a.is_astro_fitness)
+            b.is_sylva_fitness
+                .partial_cmp(&a.is_sylva_fitness)
                 .unwrap_or(std::cmp::Ordering::Equal)
         }
     });
@@ -114,7 +118,7 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
             let pct_idx = (step_i * pct_len / chart_klines.len()).min(pct_len.saturating_sub(1));
 
             let val_nom = if nom_len > 0 { cand.report_nom.equity_curve[nom_idx].1 } else { summary.initial_capital };
-            let val_pct = if pct_len > 0 { cand.report_pct.equity_curve[pct_idx].1 } else { summary.initial_capital };
+            let val_pct = if pct_len > 0 { cand.report_pct.equity_curve[pct_idx].1.max(1.0) } else { summary.initial_capital };
 
             points_nom.push(format!("{:.2}", val_nom));
             points_pct.push(format!("{:.2}", val_pct));
@@ -168,7 +172,7 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
     let datasets_nom_str = datasets_nom_json.join(",\n");
     let datasets_pct_str = datasets_pct_json.join(",\n");
 
-    // Sort candidates by Astro EVO Weighted Rank ascending (or IS Fitness descending if no rank)
+    // Sort candidates by Sylva EVO Weighted Rank ascending (or IS Fitness descending if no rank)
     let mut ranked = summary.candidates.clone();
     ranked.sort_by(|a, b| {
         if a.weighted_avg_rank > 0.0 && b.weighted_avg_rank > 0.0 {
@@ -176,8 +180,8 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
                 .partial_cmp(&b.weighted_avg_rank)
                 .unwrap_or(std::cmp::Ordering::Equal)
         } else {
-            b.is_astro_fitness
-                .partial_cmp(&a.is_astro_fitness)
+            b.is_sylva_fitness
+                .partial_cmp(&a.is_sylva_fitness)
                 .unwrap_or(std::cmp::Ordering::Equal)
         }
     });
@@ -202,7 +206,7 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
         let rank_display = if c.weighted_avg_rank > 0.0 {
             format!("{:.2} (R²: #{} | Slp: #{} | DD: #{} | Sm: #{})", c.weighted_avg_rank, c.rank_r2, c.rank_slope, c.rank_cap_dd, c.rank_smoothness)
         } else {
-            format!("{:.2}", c.is_astro_fitness)
+            format!("{:.2}", c.is_sylva_fitness)
         };
 
         table_rows.push_str(&format!(
@@ -279,7 +283,7 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
             </div>"#,
             border_color,
             trophy,
-            c.is_astro_fitness,
+            c.is_sylva_fitness,
             c.max_depth,
             c.min_samples_leaf,
             c.n_trees,
@@ -651,7 +655,7 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
         <div class="header">
             <div class="header-title">
                 <h1>🌲 GBDT Grid Search Anti-Overfitting Arena</h1>
-                <p>Laboratorio Cuantitativo de Allianz | Comparación Exhaustiva de Arquitecturas de Árboles con Purged K-Fold CV & Astro EVO Fitness</p>
+                <p>Laboratorio Cuantitativo de Allianz | Comparación Exhaustiva de Arquitecturas de Árboles con Purged K-Fold CV & Sylva EVO Fitness</p>
             </div>
             <div class="badge-tf">⏱️ Temporalidad: {tf}</div>
         </div>
@@ -669,7 +673,7 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
                 <div style="display: flex; gap: 14px; align-items: center; flex-wrap: wrap;">
                     <div class="equity-toggle-container">
                         <button id="btn-nom" class="toggle-btn active" onclick="switchGridMode('nominal')">💵 Nominal ($)</button>
-                        <button id="btn-pct" class="toggle-btn" onclick="switchGridMode('compuesto')">📈 Porcentual / Compuesto (%)</button>
+                        <button id="btn-pct" class="toggle-btn" onclick="switchGridMode('compuesto')">📈 Porcentual / Compuesto (Escala Log)</button>
                     </div>
                     <div class="chart-controls">
                         <button class="btn-ctrl" onclick="showAll()">Mostrar Todos</button>
@@ -690,7 +694,7 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
                     <tr>
                         <th>Rank</th>
                         <th>Configuración (Depth / Leaf / Trees)</th>
-                        <th>IS Astro Fitness</th>
+                        <th>IS Sylva Fitness</th>
                         <th>CV OOS MSE</th>
                         <th>Hit Ratio MDA</th>
                         <th>Rank IC (Spearman)</th>
@@ -780,11 +784,12 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
                         ticks: {{ color: '#9FAAB5', font: {{ family: 'Montserrat', size: 10 }}, maxTicksLimit: 14 }}
                     }},
                     y: {{
+                        type: 'linear',
                         grid: {{ color: 'rgba(255, 255, 255, 0.05)' }},
                         ticks: {{
                             color: '#9FAAB5',
                             font: {{ family: 'Montserrat', size: 10 }},
-                            callback: function(value) {{ return '$' + value.toLocaleString(); }}
+                            callback: function(value) {{ return '$' + Number(value).toLocaleString(); }}
                         }}
                     }}
                 }}
@@ -823,8 +828,10 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
             document.getElementById('btn-pct').classList.toggle('active', mode === 'compuesto');
             if (mode === 'nominal') {{
                 chart.data.datasets = datasetsNominal;
+                chart.options.scales.y.type = 'linear';
             }} else {{
                 chart.data.datasets = datasetsCompuesto;
+                chart.options.scales.y.type = 'logarithmic';
             }}
             chart.update();
         }}

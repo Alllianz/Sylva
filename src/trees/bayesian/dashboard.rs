@@ -51,7 +51,8 @@ pub fn generate_bayesian_tree_dashboard(
 
     let mut pct_equity_points = String::new();
     for (t, eq) in &report_pct.equity_curve {
-        pct_equity_points.push_str(&format!("{{ x: {}, y: {:.2} }},", t, eq));
+        let safe_eq = eq.max(1.0);
+        pct_equity_points.push_str(&format!("{{ x: {}, y: {:.2} }},", t, safe_eq));
     }
 
     let html = format!(r#"<!DOCTYPE html>
@@ -121,6 +122,21 @@ pub fn generate_bayesian_tree_dashboard(
             margin-bottom: 12px;
             height: 440px;
         }}
+        .toggle-btn {{
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #94a3b8;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }}
+        .toggle-btn:hover {{ background: #334155; color: #fff; }}
+        .toggle-btn.active-both {{ background: #8b5cf6; color: #fff; border-color: #8b5cf6; }}
+        .toggle-btn.active-nom {{ background: #a855f7; color: #fff; border-color: #a855f7; }}
+        .toggle-btn.active-pct {{ background: #ec4899; color: #fff; border-color: #ec4899; }}
         table {{ width: 100%; border-collapse: collapse; }}
         th, td {{ padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border-color); font-size: 12px; }}
         th {{ color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 10.5px; position: sticky; top: 0; background: var(--card-bg); z-index: 10; }}
@@ -183,8 +199,18 @@ pub fn generate_bayesian_tree_dashboard(
         </div>
     </div>
 
-    <div class="chart-container">
-        <canvas id="equityChart"></canvas>
+    <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 14px; margin-bottom: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+            <div style="font-size: 14px; font-weight: 700; color: #f8fafc;">📈 CURVAS DE RENDIMIENTO (EQUITY CURVE)</div>
+            <div style="display: flex; gap: 8px;">
+                <button id="btnBoth" class="toggle-btn active-both" onclick="switchBayesianMode('both')">🌐 Ver Ambas</button>
+                <button id="btnNom" class="toggle-btn" onclick="switchBayesianMode('nom')">💵 Nominal ($)</button>
+                <button id="btnPct" class="toggle-btn" onclick="switchBayesianMode('pct')">📈 Compuesta (Escala Log)</button>
+            </div>
+        </div>
+        <div class="chart-container" style="height: 400px; margin-bottom: 0;">
+            <canvas id="equityChart"></canvas>
+        </div>
     </div>
 
     <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 14px; align-items: start;">
@@ -225,32 +251,32 @@ pub fn generate_bayesian_tree_dashboard(
 
     <script>
         const ctx = document.getElementById('equityChart').getContext('2d');
-        new Chart(ctx, {{
+        const dsNom = {{
+            label: 'Curva Equity Nominal ($)',
+            data: [{}],
+            borderColor: '#a855f7',
+            backgroundColor: 'rgba(168, 85, 247, 0.05)',
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 3,
+            fill: true,
+        }};
+        const dsPct = {{
+            label: 'Curva Equity Compuesta ($ - Escala Log)',
+            data: [{}],
+            borderColor: '#ec4899',
+            backgroundColor: 'rgba(236, 72, 153, 0.03)',
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 3,
+            borderDash: [5, 5],
+            fill: false,
+        }};
+
+        const chart = new Chart(ctx, {{
             type: 'line',
             data: {{
-                datasets: [
-                    {{
-                        label: 'Curva Equity Nominal ($)',
-                        data: [{}],
-                        borderColor: '#a855f7',
-                        backgroundColor: 'rgba(168, 85, 247, 0.05)',
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        pointHoverRadius: 3,
-                        fill: true,
-                    }},
-                    {{
-                        label: 'Curva Equity Compuesta ($)',
-                        data: [{}],
-                        borderColor: '#ec4899',
-                        backgroundColor: 'rgba(236, 72, 153, 0.03)',
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        pointHoverRadius: 3,
-                        borderDash: [5, 5],
-                        fill: false,
-                    }}
-                ]
+                datasets: [dsNom, dsPct]
             }},
             options: {{
                 responsive: true,
@@ -267,8 +293,12 @@ pub fn generate_bayesian_tree_dashboard(
                         offset: false
                     }},
                     y: {{
+                        type: 'linear',
                         grid: {{ color: '#1f293d' }},
-                        ticks: {{ color: '#94a3b8' }}
+                        ticks: {{
+                            color: '#94a3b8',
+                            callback: function(value) {{ return '$' + Number(value).toLocaleString(); }}
+                        }}
                     }}
                 }},
                 plugins: {{
@@ -276,6 +306,30 @@ pub fn generate_bayesian_tree_dashboard(
                 }}
             }}
         }});
+
+        function switchBayesianMode(mode) {{
+            const btnBoth = document.getElementById('btnBoth');
+            const btnNom = document.getElementById('btnNom');
+            const btnPct = document.getElementById('btnPct');
+            btnBoth.className = 'toggle-btn';
+            btnNom.className = 'toggle-btn';
+            btnPct.className = 'toggle-btn';
+
+            if (mode === 'both') {{
+                btnBoth.className = 'toggle-btn active-both';
+                chart.data.datasets = [dsNom, dsPct];
+                chart.options.scales.y.type = 'linear';
+            }} else if (mode === 'nom') {{
+                btnNom.className = 'toggle-btn active-nom';
+                chart.data.datasets = [dsNom];
+                chart.options.scales.y.type = 'linear';
+            }} else if (mode === 'pct') {{
+                btnPct.className = 'toggle-btn active-pct';
+                chart.data.datasets = [dsPct];
+                chart.options.scales.y.type = 'logarithmic';
+            }}
+            chart.update();
+        }}
     </script>
 </body>
 </html>"#,

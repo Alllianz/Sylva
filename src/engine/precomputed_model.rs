@@ -11,6 +11,7 @@ pub struct PrecomputedAlphaModel {
     pub start_step: usize,
     pub threshold_long: f32,
     pub threshold_short: f32,
+    pub vol_ratios: Option<Arc<Vec<f32>>>,
 }
 
 impl PrecomputedAlphaModel {
@@ -25,7 +26,13 @@ impl PrecomputedAlphaModel {
             start_step,
             threshold_long,
             threshold_short,
+            vol_ratios: None,
         }
+    }
+
+    pub fn with_vol_ratios(mut self, vol_ratios: Arc<Vec<f32>>) -> Self {
+        self.vol_ratios = Some(vol_ratios);
+        self
     }
 }
 
@@ -49,9 +56,16 @@ impl EquationModel for PrecomputedAlphaModel {
         let rel_idx = curr_step - self.start_step;
         if rel_idx < self.alphas.len() {
             let alpha = self.alphas[rel_idx];
-            if alpha > self.threshold_long {
+            let factor = match &self.vol_ratios {
+                Some(vr) if rel_idx < vr.len() => vr[rel_idx],
+                _ => 1.0,
+            };
+            let eff_long = self.threshold_long * factor;
+            let eff_short = self.threshold_short * factor;
+
+            if alpha > eff_long {
                 SignalAction::Buy
-            } else if alpha < self.threshold_short {
+            } else if alpha < eff_short {
                 SignalAction::Sell
             } else {
                 SignalAction::Flat

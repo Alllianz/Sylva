@@ -140,7 +140,7 @@ impl GbdtAutoTuner {
             "  • Explorando {} arquitecturas de árboles en validación cruzada depurada (Purged 5-Fold CV + 1% Embargo)...",
             total_candidates
         );
-        println!("  • Optimizando simultáneamente por Astro EVO Fitness y consistencia entre folds.\n");
+        println!("  • Optimizando simultáneamente por Sylva EVO Fitness y consistencia entre folds.\n");
 
         #[derive(Clone)]
         struct CandidateEval {
@@ -196,7 +196,7 @@ impl GbdtAutoTuner {
                 / fold_mses.len() as f32;
             let std_mse = var_mse.sqrt();
 
-            // Ajuste sobre In-Sample completo y calibración de umbrales con Astro EVO
+            // Ajuste sobre In-Sample completo y calibración de umbrales con Sylva EVO
             let full_trainer = GbdtTrainer::new(gbdt_cfg.clone());
             let final_gbdt = full_trainer.fit(is_dataset, mask)?;
 
@@ -267,7 +267,7 @@ impl GbdtAutoTuner {
             });
         }
 
-        // 1. Ranking Multicriterio por Puestos de Astro EVO Max (Sin Look-Ahead Bias)
+        // 1. Ranking Multicriterio por Puestos de Sylva EVO Max (Sin Look-Ahead Bias)
         let rankings = compute_multicriteria_rankings(
             &evaluated_candidates,
             |c| format!("{}-{}-{}-{:.4}", c.config.max_depth, c.config.min_samples_leaf, c.config.n_trees, c.config.learning_rate),
@@ -292,8 +292,8 @@ impl GbdtAutoTuner {
         let mut candidate_reports = Vec::with_capacity(evaluated_candidates.len());
         for (i, cand) in evaluated_candidates.iter().enumerate() {
             let key = format!("{}-{}-{}-{:.4}", cand.config.max_depth, cand.config.min_samples_leaf, cand.config.n_trees, cand.config.learning_rate);
-            let (r_slope, r_cap_dd, r_r2, r_smooth, weighted_rank, astro_rank) = if let Some(r) = rankings.get(&key) {
-                (r.rank_slope, r.rank_cap_dd, r.rank_r2, r.rank_smoothness, r.weighted_avg_rank, r.astro_rank_fitness)
+            let (r_slope, r_cap_dd, r_r2, r_smooth, weighted_rank, sylva_rank) = if let Some(r) = rankings.get(&key) {
+                (r.rank_slope, r.rank_cap_dd, r.rank_r2, r.rank_smoothness, r.weighted_avg_rank, r.sylva_rank_fitness)
             } else {
                 (999, 999, 999, 999, 999.0, 0.0)
             };
@@ -302,18 +302,19 @@ impl GbdtAutoTuner {
                 max_depth: cand.config.max_depth,
                 min_samples_leaf: cand.config.min_samples_leaf,
                 n_trees: cand.config.n_trees,
+                target_horizon: self.config.target_horizon,
                 cv_mse: cand.cv_mse,
                 cv_mda: cand.cv_mda,
                 cv_ic: cand.cv_ic,
                 best_thr_long: cand.thr_long,
                 best_thr_short: cand.thr_short,
-                is_astro_fitness: cand.is_fitness,
+                is_sylva_fitness: cand.is_fitness,
                 rank_slope: r_slope,
                 rank_cap_dd: r_cap_dd,
                 rank_r2: r_r2,
                 rank_smoothness: r_smooth,
                 weighted_avg_rank: weighted_rank,
-                astro_rank_fitness: astro_rank,
+                sylva_rank_fitness: sylva_rank,
                 raw_slope_ratio: 0.0,
                 raw_cap_dd_ratio: 0.0,
                 raw_r2_score: 0.0,
@@ -324,7 +325,7 @@ impl GbdtAutoTuner {
             });
         }
 
-        // 3. Ordenar candidatos por Puesto Ponderado de Astro EVO ascendente (Menor promedio de puesto = Mejor arquitectura)
+        // 3. Ordenar candidatos por Puesto Ponderado de Sylva EVO ascendente (Menor promedio de puesto = Mejor arquitectura)
         candidate_reports.sort_by(|a, b| {
             a.weighted_avg_rank
                 .partial_cmp(&b.weighted_avg_rank)
@@ -332,7 +333,7 @@ impl GbdtAutoTuner {
         });
 
         println!("\n=======================================================================================================================================");
-        println!("                         🏆 LEADERBOARD DE AUTO-OPTIMIZACIÓN GBDT (RANKING POR PUESTOS ASTRO EVO MAX)                         ");
+        println!("                         🏆 LEADERBOARD DE AUTO-OPTIMIZACIÓN GBDT (RANKING POR PUESTOS SYLVA EVO MAX)                         ");
         println!("=======================================================================================================================================");
         println!(
             "  {:<5} | {:<5} | {:<10} | {:<5} | {:<5} | {:>10} | {:>12} | {:>12} | {:>10} | {:>10} | {:>10}",
@@ -383,7 +384,7 @@ impl GbdtAutoTuner {
             champion_config: champ_cfg,
             champion_thr_long: champion.best_thr_long,
             champion_thr_short: champion.best_thr_short,
-            champion_is_fitness: champion.is_astro_fitness,
+            champion_is_fitness: champion.is_sylva_fitness,
             champion_oof_fitness: champion.weighted_avg_rank,
             candidate_reports,
             total_evaluated: total_candidates,

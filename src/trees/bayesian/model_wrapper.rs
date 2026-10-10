@@ -1,4 +1,5 @@
 use crate::data::db::Kline;
+use crate::engine::dynamic_threshold::{calculate_volatility_factor, ThresholdMode};
 use crate::engine::equation_model::EquationModel;
 use crate::engine::types::SignalAction;
 use crate::features::cached::CachedIndicators;
@@ -23,6 +24,7 @@ pub struct BayesianGbdtEquationModel {
     pub prev_close: Option<f64>,
     pub last_prediction: Option<BayesianPrediction>,
     pub cached_indicators: Option<Arc<CachedIndicators>>,
+    pub threshold_mode: ThresholdMode,
 }
 
 impl BayesianGbdtEquationModel {
@@ -45,6 +47,7 @@ impl BayesianGbdtEquationModel {
             prev_close: None,
             last_prediction: None,
             cached_indicators: None,
+            threshold_mode: ThresholdMode::default(),
         }
     }
 
@@ -65,6 +68,11 @@ impl BayesianGbdtEquationModel {
 
     pub fn with_cached_indicators(mut self, cached: Arc<CachedIndicators>) -> Self {
         self.cached_indicators = Some(cached);
+        self
+    }
+
+    pub fn with_threshold_mode(mut self, mode: ThresholdMode) -> Self {
+        self.threshold_mode = mode;
         self
     }
 }
@@ -118,11 +126,18 @@ impl EquationModel for BayesianGbdtEquationModel {
         self.prev_features = Some(feats);
         self.prev_close = Some(curr_close);
 
-        // 4. --- FILTRO DE INCERTIDUMBRE Y DISPARO DE SEÑAL ---
-        if alpha > self.threshold_long && pred.prob_positive >= self.prob_threshold {
+        // 4. --- FILTRO DE INCERTIDUMBRE Y DISPARO DE SEÑAL (CON UMBRALES ADAPTATIVOS) ---
+        let vol_factor = match self.threshold_mode {
+            ThresholdMode::DynamicAtrRatio => calculate_volatility_factor(curr_idx, self.cached_indicators.as_deref()),
+            ThresholdMode::Static => 1.0,
+        };
+        let eff_threshold_long = self.threshold_long * vol_factor;
+        let eff_threshold_short = self.threshold_short * vol_factor;
+
+        if alpha > eff_threshold_long && pred.prob_positive >= self.prob_threshold {
             self.current_position_val = 1.0;
             SignalAction::Buy
-        } else if alpha < self.threshold_short && pred.prob_positive <= (1.0 - self.prob_threshold) {
+        } else if alpha < eff_threshold_short && pred.prob_positive <= (1.0 - self.prob_threshold) {
             self.current_position_val = -1.0;
             SignalAction::Sell
         } else {

@@ -1,15 +1,18 @@
-pub mod astro_tuner;
 pub mod batch;
 pub mod bayesian;
 pub mod dataset;
 pub mod gpu;
 pub mod linear;
 pub mod online;
+pub mod sylva_tuner;
+pub use sylva_tuner as astro_tuner;
 
-pub use astro_tuner::{
-    generate_astro_tree_tuning_dashboard, AstroTreeAutoTuningConfig, AstroTreeAutoTuningResult,
-    AstroTreeCandidateConfig, AstroTreeEvaluator, AstroTreeModelType, AstroTreeOptimizer,
-    AstroTreeSampler, AstroTreeTrial,
+pub use sylva_tuner::{
+    generate_astro_tree_tuning_dashboard, generate_sylva_tree_tuning_dashboard,
+    AstroTreeAutoTuningConfig, AstroTreeAutoTuningResult, AstroTreeCandidateConfig,
+    AstroTreeEvaluator, AstroTreeModelType, AstroTreeOptimizer, AstroTreeSampler, AstroTreeTrial,
+    SylvaTreeAutoTuningConfig, SylvaTreeAutoTuningResult, SylvaTreeCandidateConfig,
+    SylvaTreeEvaluator, SylvaTreeModelType, SylvaTreeOptimizer, SylvaTreeSampler, SylvaTreeTrial,
 };
 pub use batch::{
     evaluate_predictions, CrossValidationMetrics, DecisionTree, GbdtAutoTuner,

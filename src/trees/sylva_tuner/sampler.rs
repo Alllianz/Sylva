@@ -1,14 +1,22 @@
-use crate::trees::astro_tuner::types::{AstroTreeCandidateConfig, AstroTreeModelType};
+use crate::trees::sylva_tuner::types::{SylvaTreeCandidateConfig, SylvaTreeModelType};
 
-/// Muestreador y Mutador Evolutivo por Bloques Coordinados (Inspirado en el motor de Astro EVO)
-pub struct AstroTreeSampler {
+/// Muestreador y Mutador Evolutivo por Bloques Coordinados (Inspirado en el motor de Sylva EVO)
+pub struct SylvaTreeSampler {
     pub seed: u64,
-    pub model_type: AstroTreeModelType,
+    pub model_type: SylvaTreeModelType,
+    pub candidate_horizons: Vec<usize>,
 }
 
-impl AstroTreeSampler {
-    pub fn new(seed: u64, model_type: AstroTreeModelType) -> Self {
-        Self { seed, model_type }
+pub type AstroTreeSampler = SylvaTreeSampler;
+
+impl SylvaTreeSampler {
+    pub fn new(seed: u64, model_type: SylvaTreeModelType, candidate_horizons: Vec<usize>) -> Self {
+        let candidate_horizons = if candidate_horizons.is_empty() {
+            vec![1, 2, 4]
+        } else {
+            candidate_horizons
+        };
+        Self { seed, model_type, candidate_horizons }
     }
 
     #[inline(always)]
@@ -30,7 +38,7 @@ impl AstroTreeSampler {
     }
 
     /// Genera una muestra exploratoria inicial respetando la relación estructural entre bloques
-    pub fn sample_exploratory(&mut self) -> AstroTreeCandidateConfig {
+    pub fn sample_exploratory(&mut self) -> SylvaTreeCandidateConfig {
         // Bloque 1: Arquitectura y Capacidad del Árbol (Profundidad, Árboles, Hojas Mínimas)
         let max_depth = (2 + (self.next_u32() % 5)) as usize; // Profundidad entre 2 y 6
         let n_trees = match max_depth {
@@ -64,7 +72,10 @@ impl AstroTreeSampler {
         let prior_precision = 0.2 + (self.next_f32() * 3.8); // 0.2..4.0
         let uncertainty_penalty_kappa = self.next_f32() * 1.8; // 0.0..1.8
 
-        AstroTreeCandidateConfig {
+        let h_idx = (self.next_u32() as usize) % self.candidate_horizons.len();
+        let target_horizon = self.candidate_horizons[h_idx];
+
+        SylvaTreeCandidateConfig {
             model_type: self.model_type,
             max_depth,
             n_trees,
@@ -78,13 +89,14 @@ impl AstroTreeSampler {
             colsample_bytree,
             prior_precision,
             uncertainty_penalty_kappa,
+            target_horizon,
         }
     }
 
     /// Mutación Adaptativa por Bloques Coordinados de un Candidato Padre Exitoso
-    pub fn mutate_parent(&mut self, parent: &AstroTreeCandidateConfig) -> AstroTreeCandidateConfig {
+    pub fn mutate_parent(&mut self, parent: &SylvaTreeCandidateConfig) -> SylvaTreeCandidateConfig {
         let mut child = parent.clone();
-        let block_to_mutate = (self.next_u32() % 4) as usize;
+        let block_to_mutate = (self.next_u32() % 5) as usize;
 
         match block_to_mutate {
             0 => {
@@ -119,13 +131,18 @@ impl AstroTreeSampler {
                 let delta_grace = (self.next_gaussian() * 3.0).round() as i32;
                 child.grace_period = ((child.grace_period as i32) + delta_grace).clamp(8, 45) as usize;
             }
-            _ => {
+            3 => {
                 // Mutación Bloque 4: Parámetros Bayesianos & Incertidumbre
                 let delta_prec = self.next_gaussian() * 0.4;
                 child.prior_precision = (child.prior_precision + delta_prec).clamp(0.1, 5.0);
 
                 let delta_kappa = self.next_gaussian() * 0.25;
                 child.uncertainty_penalty_kappa = (child.uncertainty_penalty_kappa + delta_kappa).clamp(0.0, 2.5);
+            }
+            _ => {
+                // Mutación Bloque 5: Horizonte Causal Multi-Vela
+                let h_idx = (self.next_u32() as usize) % self.candidate_horizons.len();
+                child.target_horizon = self.candidate_horizons[h_idx];
             }
         }
 

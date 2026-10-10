@@ -5,11 +5,11 @@ use crate::engine::types::BacktestConfig;
 use crate::features::CachedIndicators;
 use crate::features::FeatureMask;
 use crate::metrics::ranking::compute_multicriteria_rankings;
-use crate::trees::astro_tuner::evaluator::AstroTreeEvaluator;
-use crate::trees::astro_tuner::sampler::AstroTreeSampler;
-use crate::trees::astro_tuner::types::{
-    AstroTreeAutoTuningConfig, AstroTreeAutoTuningResult, AstroTreeCandidateConfig,
-    AstroTreeModelType, AstroTreeTrial,
+use crate::trees::sylva_tuner::evaluator::SylvaTreeEvaluator;
+use crate::trees::sylva_tuner::sampler::SylvaTreeSampler;
+use crate::trees::sylva_tuner::types::{
+    SylvaTreeAutoTuningConfig, SylvaTreeAutoTuningResult, SylvaTreeCandidateConfig,
+    SylvaTreeModelType, SylvaTreeTrial,
 };
 use crate::trees::dataset::TabularDataset;
 use crate::trees::gpu::GpuTreeEngine;
@@ -20,18 +20,20 @@ use std::error::Error;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-/// Optimizador Evolutivo Automático para Árboles (Astro EVO Tree Engine)
-pub struct AstroTreeOptimizer {
-    pub config: AstroTreeAutoTuningConfig,
+/// Optimizador Evolutivo Automático para Árboles (Sylva EVO Tree Engine)
+pub struct SylvaTreeOptimizer {
+    pub config: SylvaTreeAutoTuningConfig,
     pub backtest_config_nom: BacktestConfig,
     pub backtest_config_pct: BacktestConfig,
     pub cached: Arc<CachedIndicators>,
     pub gpu_engine: Option<Arc<GpuTreeEngine>>,
 }
 
-impl AstroTreeOptimizer {
+pub type AstroTreeOptimizer = SylvaTreeOptimizer;
+
+impl SylvaTreeOptimizer {
     pub fn new(
-        config: AstroTreeAutoTuningConfig,
+        config: SylvaTreeAutoTuningConfig,
         backtest_config_nom: BacktestConfig,
         backtest_config_pct: BacktestConfig,
         cached: Arc<CachedIndicators>,
@@ -41,7 +43,7 @@ impl AstroTreeOptimizer {
     }
 
     pub fn new_with_engine(
-        config: AstroTreeAutoTuningConfig,
+        config: SylvaTreeAutoTuningConfig,
         backtest_config_nom: BacktestConfig,
         backtest_config_pct: BacktestConfig,
         cached: Arc<CachedIndicators>,
@@ -49,17 +51,16 @@ impl AstroTreeOptimizer {
     ) -> Self {
         let gpu_engine = if use_gpu {
             match GpuTreeEngine::new() {
-                Ok(gpu) => {
-                    println!("  🎮 [GPU] Acelerador gráfico activo: {}", gpu.hardware_info());
-                    Some(Arc::new(gpu))
+                Ok(engine) => {
+                    println!("  🚀 Motor GPU inicializado exitosamente: {}", engine.hardware_info());
+                    Some(Arc::new(engine))
                 }
-                Err(e) => {
-                    println!("  ⚠️ [GPU] No disponible ({}), conmutando automáticamente a CPU Rayon multihilo", e);
+                Err(err) => {
+                    eprintln!("  ⚠️ No se pudo inicializar GPU ({}), recurriendo a CPU multihilo Rayon", err);
                     None
                 }
             }
         } else {
-            println!("  💻 [CPU] Modo Determinista CPU Seleccionado (32 Hilos Rayon - Cero Dependencia Gráfica)");
             None
         };
 
@@ -76,16 +77,16 @@ impl AstroTreeOptimizer {
     pub fn optimize(
         &self,
         klines: &[Kline],
-        is_dataset: &TabularDataset,
+        datasets_by_h: &std::collections::HashMap<usize, TabularDataset>,
         is_start_idx: usize,
         oos_start_idx: usize,
         tf: &str,
         mask: Option<&FeatureMask>,
-    ) -> Result<AstroTreeAutoTuningResult, Box<dyn Error + Send + Sync>> {
+    ) -> Result<SylvaTreeAutoTuningResult, Box<dyn Error + Send + Sync>> {
         let num_threads = rayon::current_num_threads();
         let model_label = match self.config.model_type {
-            AstroTreeModelType::OnlineConventional => "Online GBDT (Streaming Hoeffding Trees)",
-            AstroTreeModelType::BayesianOnline => "Bayesian Online Trees (NIG Posterior & Incertidumbre)",
+            SylvaTreeModelType::OnlineConventional => "Online GBDT (Streaming Hoeffding Trees)",
+            SylvaTreeModelType::BayesianOnline => "Bayesian Online Trees (NIG Posterior & Incertidumbre)",
         };
 
         let feature_label = match mask {
@@ -100,10 +101,11 @@ impl AstroTreeOptimizer {
         };
 
         println!("\n=======================================================================================================================================");
-        println!("               🧬 AUTO-OPTIMIZACIÓN EVOLUTIVA ASTRO EVO - {}", hardware_status);
+        println!("               🧬 AUTO-OPTIMIZACIÓN EVOLUTIVA SYLVA EVO - {}", hardware_status);
         println!("=======================================================================================================================================");
         println!("  • Modelo: {}", model_label);
         println!("  • Espacio de Variables: {}", feature_label);
+        println!("  • Horizontes Causales Explorados: {:?}", self.config.candidate_horizons);
         println!("  • Generaciones: {} | Población por Gen: {} | Pruebas Iniciales Exploratorias: {} | Hilos Rayon: {}",
             self.config.generations, self.config.population_size, self.config.initial_exploratory_trials, num_threads
         );
@@ -112,149 +114,134 @@ impl AstroTreeOptimizer {
         }
         println!("---------------------------------------------------------------------------------------------------------------------------------------");
 
-        let mut evaluator = AstroTreeEvaluator::new(
+        let mut evaluator = SylvaTreeEvaluator::new(
             self.backtest_config_nom.clone(),
             self.backtest_config_pct.clone(),
             self.config.rolling_window,
             Arc::clone(&self.cached),
-        );
+        ).with_threshold_mode(self.config.threshold_mode);
         if let Some(ref gpu) = self.gpu_engine {
             evaluator = evaluator.with_gpu_engine(Arc::clone(gpu));
         }
 
-        let mut sampler = AstroTreeSampler::new(self.config.seed, self.config.model_type);
-        let mut all_trials: Vec<AstroTreeTrial> = Vec::new();
+        let evaluator_arc = Arc::new(evaluator);
+        let mut sampler = SylvaTreeSampler::new(
+            self.config.seed,
+            self.config.model_type,
+            self.config.candidate_horizons.clone(),
+        );
 
-        let colors = [
-            "#10b981", "#3b82f6", "#8b5cf6", "#f59e0b", "#ec4899",
-            "#06b6d4", "#f97316", "#14b8a6", "#6366f1", "#a855f7",
-            "#84cc16", "#ef4444", "#eab308", "#0ea5e9", "#d946ef",
-            "#22c55e", "#64748b", "#fb7185", "#38bdf8", "#4ade80",
-        ];
+        let mut all_trials: Vec<SylvaTreeTrial> = Vec::new();
+        let trial_counter = Arc::new(AtomicUsize::new(0));
 
-        // 1. --- FASE 1: EXPLORACIÓN GLOBAL INICIAL DETERMINISTA ---
-        let exploratory_candidates: Vec<(usize, AstroTreeCandidateConfig, String)> = (0..self.config.initial_exploratory_trials)
+        // 1. --- FASE 1: POBLACIÓN INICIAL EXPLORATORIA (LHS & BLOQUES DIVERSIFICADOS) ---
+        println!("\n--- FASE 1: Exploración Inicial de Alta Cobertura ({} Candidatos) ---", self.config.initial_exploratory_trials);
+
+        let colors = ["#38bdf8", "#818cf8", "#c084fc", "#f472b6", "#fb7185", "#34d399", "#fbbf24", "#a3e635"];
+        let exploratory_candidates: Vec<(usize, SylvaTreeCandidateConfig, String)> = (0..self.config.initial_exploratory_trials)
             .map(|i| {
-                let candidate = sampler.sample_exploratory();
+                let cand = sampler.sample_exploratory();
                 let color = colors[i % colors.len()].to_string();
-                (i + 1, candidate, color)
+                (i + 1, cand, color)
             })
             .collect();
 
-        let phase1_engine = if self.gpu_engine.is_some() { "GPU Pipeline + Rayon" } else { "32 Hilos CPU" };
-        println!("\n--- FASE 1: Exploración Inicial Determinista ({} Candidatos en {}) ---", self.config.initial_exploratory_trials, phase1_engine);
-
-        let progress = AtomicUsize::new(0);
-        let total_exploratory = self.config.initial_exploratory_trials;
-
-        let exploratory_trials: Vec<AstroTreeTrial> = exploratory_candidates
+        let exploratory_trials: Vec<SylvaTreeTrial> = exploratory_candidates
             .into_par_iter()
-            .map(|(trial_idx, candidate, color)| {
-                let res = evaluator.evaluate_candidate(
-                    &candidate,
+            .map(|(trial_idx, cand, color)| {
+                let eval = Arc::clone(&evaluator_arc);
+                let trial_res = eval.evaluate_candidate(
+                    &cand,
                     trial_idx,
                     0,
                     klines,
-                    is_dataset,
+                    datasets_by_h,
                     is_start_idx,
                     oos_start_idx,
                     mask,
                     color,
-                );
-                let done = progress.fetch_add(1, Ordering::Relaxed) + 1;
-                if done % 10 == 0 || done == total_exploratory || done == 1 {
-                    println!("  ⏳ [Fase 1] Exploración: {}/{} candidatos evaluados...", done, total_exploratory);
-                }
-                res
+                ).expect("Error evaluando candidato exploratorio");
+                trial_res
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect();
 
-        for trial in &exploratory_trials {
+        for trial in exploratory_trials {
             println!(
-                "  • Exploración [{:>2}/{}]: Depth: {} | Trees: {:>2} | LR: {:.3} | Decay: {:.4} ➔ Fitness: {:>6.2} | Profit: +${:.2} ({:+.2}%)",
-                trial.trial_idx, self.config.initial_exploratory_trials, trial.config.max_depth, trial.config.n_trees, trial.config.learning_rate, trial.config.decay_factor, trial.is_astro_fitness, trial.report_nom.net_profit, trial.report_nom.total_return_pct
+                "  [Init #{:02}/{:02}] H={} | d={} | trees={} | lr={:.3} | decay={:.4} => Fitness={:+.2} | NetNom=+${:.2} ({:+.2}%)",
+                trial.trial_idx, self.config.initial_exploratory_trials, trial.config.target_horizon, trial.config.max_depth, trial.config.n_trees, trial.config.learning_rate, trial.config.decay_factor, trial.is_sylva_fitness, trial.report_nom.net_profit, trial.report_nom.total_return_pct
             );
+            all_trials.push(trial);
         }
-        all_trials.extend(exploratory_trials);
 
-        // 2. --- FASE 2: BUCLE EVOLUTIVO DETERMINISTA PARALELO ASTRO EVO ---
-        println!("\n--- FASE 2: Bucle Evolutivo Determinista Astro EVO ({} Generaciones x {} Individuos) ---", self.config.generations, self.config.population_size);
+        // 2. --- FASE 2: BUCLE EVOLUTIVO DETERMINISTA PARALELO SYLVA EVO ---
+        println!("\n--- FASE 2: Bucle Evolutivo Determinista Sylva EVO ({} Generaciones x {} Individuos) ---", self.config.generations, self.config.population_size);
 
-        for gen_idx in 1..=self.config.generations {
+        for generation in 1..=self.config.generations {
             all_trials.sort_by(|a, b| {
-                b.is_astro_fitness
-                    .partial_cmp(&a.is_astro_fitness)
+                b.is_sylva_fitness
+                    .partial_cmp(&a.is_sylva_fitness)
                     .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| a.trial_idx.cmp(&b.trial_idx))
             });
 
-            let top_parents: Vec<AstroTreeCandidateConfig> = all_trials.iter().take(4).map(|t| t.config.clone()).collect();
-            let best_historical_fitness = all_trials[0].is_astro_fitness;
+            let top_parents: Vec<SylvaTreeCandidateConfig> = all_trials.iter().take(4).map(|t| t.config.clone()).collect();
+            let best_historical_fitness = all_trials[0].is_sylva_fitness;
 
-            let phase2_engine = if self.gpu_engine.is_some() { "GPU + Rayon" } else { "32 Cores CPU" };
-            println!(
-                "\n  🧬 GENERACIÓN {:>2}/{} | Mejor Fitness Actual: {:>6.2} (Depth={}, Trees={}, Decay={:.4}) [{}]",
-                gen_idx, self.config.generations, best_historical_fitness, all_trials[0].config.max_depth, all_trials[0].config.n_trees, all_trials[0].config.decay_factor, phase2_engine
-            );
+            println!("\n=== GENERACIÓN {}/{} (Mejor Fitness Histórico: {:+.2}) ===", generation, self.config.generations, best_historical_fitness);
 
-            let base_idx = all_trials.len();
-            let gen_candidates: Vec<(usize, AstroTreeCandidateConfig, String)> = (0..self.config.population_size)
+            let gen_candidates: Vec<(usize, SylvaTreeCandidateConfig, String)> = (0..self.config.population_size)
                 .map(|ind_idx| {
-                    let candidate = if sampler.next_f32() < 0.20 {
-                        sampler.sample_exploratory()
+                    let parent_idx = (sampler.next_u32() as usize) % top_parents.len();
+                    let parent = &top_parents[parent_idx];
+                    let mut child = if sampler.next_f32() < self.config.mutation_rate {
+                        sampler.mutate_parent(parent)
                     } else {
-                        let parent_idx = (sampler.next_u32() as usize) % top_parents.len();
-                        sampler.mutate_parent(&top_parents[parent_idx])
+                        parent.clone()
                     };
-                    let color = colors[(base_idx + ind_idx) % colors.len()].to_string();
-                    (base_idx + ind_idx + 1, candidate, color)
+                    if sampler.next_f32() < 0.15 {
+                        child = sampler.sample_exploratory();
+                    }
+                    let t_idx = trial_counter.fetch_add(1, Ordering::SeqCst) + 1;
+                    let color = colors[ind_idx % colors.len()].to_string();
+                    (t_idx, child, color)
                 })
                 .collect();
 
-            let gen_progress = AtomicUsize::new(0);
-            let total_gen = self.config.population_size;
-
-            let gen_trials: Vec<AstroTreeTrial> = gen_candidates
+            let gen_trials: Vec<SylvaTreeTrial> = gen_candidates
                 .into_par_iter()
-                .map(|(trial_idx, candidate, color)| {
-                    let res = evaluator.evaluate_candidate(
-                        &candidate,
+                .map(|(trial_idx, cand, color)| {
+                    let eval = Arc::clone(&evaluator_arc);
+                    eval.evaluate_candidate(
+                        &cand,
                         trial_idx,
-                        gen_idx,
+                        generation,
                         klines,
-                        is_dataset,
+                        datasets_by_h,
                         is_start_idx,
                         oos_start_idx,
                         mask,
                         color,
-                    );
-                    let done = gen_progress.fetch_add(1, Ordering::Relaxed) + 1;
-                    if done % 10 == 0 || done == total_gen || done == 1 {
-                        println!("     ⏳ [Gen {}/{}] Evolución: {}/{} individuos evaluados...", gen_idx, self.config.generations, done, total_gen);
-                    }
-                    res
+                    ).expect("Error evaluando candidato generacional")
                 })
-                .collect::<Result<Vec<_>, _>>()?;
+                .collect();
 
-            for (ind_idx, trial) in gen_trials.iter().enumerate() {
-                if (ind_idx + 1) % 5 == 0 || ind_idx == gen_trials.len() - 1 {
-                    println!(
-                        "     └─ Individuo [{:>2}/{}]: Depth: {} | Trees: {:>2} | LR: {:.3} | Decay: {:.4} ➔ Fitness: {:>6.2} | Profit: +${:.2}",
-                        ind_idx + 1, self.config.population_size, trial.config.max_depth, trial.config.n_trees, trial.config.learning_rate, trial.config.decay_factor, trial.is_astro_fitness, trial.report_nom.net_profit
-                    );
-                }
+            for (ind_idx, trial) in gen_trials.into_iter().enumerate() {
+                let is_new_record = trial.is_sylva_fitness > best_historical_fitness;
+                let record_badge = if is_new_record { " 🔥 NUEVO RÉCORD!" } else { "" };
+                println!(
+                    "    • [G{:02} #{:02}/{:02}] H={} | d={} | trees={} | lr={:.3} | decay={:.4} => Fitness={:+.2} | NetNom=+${:.2}{}",
+                    generation, ind_idx + 1, self.config.population_size, trial.config.target_horizon, trial.config.max_depth, trial.config.n_trees, trial.config.learning_rate, trial.config.decay_factor, trial.is_sylva_fitness, trial.report_nom.net_profit, record_badge
+                );
+                all_trials.push(trial);
             }
-
-            all_trials.extend(gen_trials);
         }
 
-        // 3. --- FASE 3: RANKING MULTICRITERIO POR PUESTOS DE ASTRO EVO ---
-        println!("\n  📊 Calculando Ranking Multicriterio por Puestos Astro EVO (R² 2x, Slope Ratio, Cap/DD, Smoothness)...");
+        // 3. --- FASE 3: RANKING MULTICRITERIO POR PUESTOS DE SYLVA EVO ---
+        println!("\n  📊 Calculando Ranking Multicriterio por Puestos Sylva EVO (R² 2x, Slope Ratio, Cap/DD, Smoothness)...");
         let mut candidate_reports: Vec<GbdtGridCandidateReport> = all_trials.iter().map(|t| t.candidate_report.clone()).collect();
 
         let rankings = compute_multicriteria_rankings(
             &candidate_reports,
-            |c| format!("{}-{}-{}-{:.4}", c.max_depth, c.min_samples_leaf, c.n_trees, c.best_thr_long),
+            |c| format!("{}-{}-{}-{}-{:.4}", c.target_horizon, c.max_depth, c.min_samples_leaf, c.n_trees, c.best_thr_long),
             |c| c.raw_slope_ratio,
             |c| c.raw_cap_dd_ratio,
             |c| c.raw_r2_score,
@@ -262,14 +249,14 @@ impl AstroTreeOptimizer {
         );
 
         for (idx, trial) in all_trials.iter_mut().enumerate() {
-            let key = format!("{}-{}-{}-{:.4}", trial.config.max_depth, trial.config.min_samples_leaf, trial.config.n_trees, trial.best_threshold_long);
+            let key = format!("{}-{}-{}-{}-{:.4}", trial.config.target_horizon, trial.config.max_depth, trial.config.min_samples_leaf, trial.config.n_trees, trial.best_threshold_long);
             if let Some(r_score) = rankings.get(&key) {
                 trial.candidate_report.rank_slope = r_score.rank_slope;
                 trial.candidate_report.rank_cap_dd = r_score.rank_cap_dd;
                 trial.candidate_report.rank_r2 = r_score.rank_r2;
                 trial.candidate_report.rank_smoothness = r_score.rank_smoothness;
                 trial.candidate_report.weighted_avg_rank = r_score.weighted_avg_rank;
-                trial.candidate_report.astro_rank_fitness = r_score.astro_rank_fitness;
+                trial.candidate_report.sylva_rank_fitness = r_score.sylva_rank_fitness;
                 candidate_reports[idx] = trial.candidate_report.clone();
             }
         }
@@ -285,11 +272,20 @@ impl AstroTreeOptimizer {
         let mut champion = all_trials[0].clone();
 
         // Para el Campeón Absoluto, reconstruir la curva completa de alta resolución y lista de trades
-        // para el reporte del terminal y los dashboards interactivos (únicamente 1 modelo):
-        let sim_nom = BacktestSimulator::new(self.backtest_config_nom.clone());
-        let sim_pct = BacktestSimulator::new(self.backtest_config_pct.clone());
+        // con max_holding_bars acoplado 100% a su target_horizon:
+        let mut champ_cfg_nom = self.backtest_config_nom.clone();
+        champ_cfg_nom.max_holding_bars = champion.config.target_horizon;
+        let mut champ_cfg_pct = self.backtest_config_pct.clone();
+        champ_cfg_pct.max_holding_bars = champion.config.target_horizon;
+        let sim_nom = BacktestSimulator::new(champ_cfg_nom);
+        let sim_pct = BacktestSimulator::new(champ_cfg_pct);
+
+        let champ_dataset = datasets_by_h.get(&champion.config.target_horizon)
+            .or_else(|| datasets_by_h.values().next())
+            .expect("Dataset tabular no encontrado para el campeón");
+
         let champion_online_cfg = champion.config.to_online_config();
-        if let Ok(champ_trainer) = OnlineGbdtTrainer::new(champion_online_cfg).fit_stream(is_dataset, mask) {
+        if let Ok(champ_trainer) = OnlineGbdtTrainer::new(champion_online_cfg).fit_stream(champ_dataset, mask) {
             let mut model_nom = OnlineGbdtEquationModel::new(
                 champ_trainer.clone(),
                 champion.best_threshold_long,
@@ -311,8 +307,9 @@ impl AstroTreeOptimizer {
         }
 
         println!("\n=======================================================================================================================================");
-        println!("                             🏆 CAMPEÓN ABSOLUTO ASTRO EVO MAX (MEJOR PUESTO PONDERADO MULTICRITERIO)                                 ");
+        println!("                             🏆 CAMPEÓN ABSOLUTO SYLVA EVO MAX (MEJOR PUESTO PONDERADO MULTICRITERIO)                                 ");
         println!("=======================================================================================================================================");
+        println!("  • Horizonte Causal H: {} velas (predicción forward acoplada a holding de {} barras)", champion.config.target_horizon, champion.config.target_horizon);
         println!("  • Arquitectura: Profundidad={} | Árboles={} | Muestras Mínimas Hoja={}", champion.config.max_depth, champion.config.n_trees, champion.config.min_samples_leaf);
         println!("  • Hiperparámetros: Learning Rate={:.3} | Factor Olvido δ={:.4} | Regularización L2={:.2}", champion.config.learning_rate, champion.config.decay_factor, champion.config.l2_reg);
         println!("  • Umbrales Calibrados: Long={:+.4} | Short={:+.4}", champion.best_threshold_long, champion.best_threshold_short);
@@ -338,7 +335,7 @@ impl AstroTreeOptimizer {
         };
         let _ = generate_gbdt_grid_dashboard(&grid_summary, klines);
 
-        Ok(AstroTreeAutoTuningResult {
+        Ok(SylvaTreeAutoTuningResult {
             champion_trial: champion,
             all_trials,
             candidate_reports,
