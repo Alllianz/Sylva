@@ -21,6 +21,7 @@ use crate::trees::{
     SylvaTreeAutoTuningConfig, SylvaTreeModelType, SylvaTreeOptimizer, TabularDataset,
 };
 use crate::ui::prompts::{parse_usize_list, prompt_leverage_for_analysis, prompt_timeframe_for_analysis};
+use chrono::{TimeZone, Utc};
 use std::error::Error;
 use std::io::{self, Write};
 use std::sync::Arc;
@@ -74,9 +75,29 @@ pub fn run_tree_session(
     }
 
     let (is_start_idx, oos_start_idx) = get_dataset_partition_indices(&klines, 100);
+    let is_date_str = Utc
+        .timestamp_millis_opt(klines[is_start_idx].timestamp)
+        .single()
+        .map(|dt| dt.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| "2020-04-20".to_string());
+    let oos_date_str = if oos_start_idx < klines.len() {
+        Utc
+            .timestamp_millis_opt(klines[oos_start_idx].timestamp)
+            .single()
+            .map(|dt| dt.format("%Y-%m-%d").to_string())
+            .unwrap_or_else(|| "N/A".to_string())
+    } else {
+        "N/A".to_string()
+    };
+    let end_date_str = klines
+        .last()
+        .and_then(|k| Utc.timestamp_millis_opt(k.timestamp).single())
+        .map(|dt| dt.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| "N/A".to_string());
+
     println!(
-        "\n  Dataset: {} velas | Warm-up: 0..{} | In-Sample: {}..{} | Out-Of-Sample: {}..{}",
-        klines.len(), is_start_idx, is_start_idx, oos_start_idx, oos_start_idx, klines.len()
+        "\n  📊 Partición Causal: {} velas totales | Warm-up causal: 0..{} | In-Sample: {}..{} (desde {}) | Out-Of-Sample: {}..{} (desde {} hasta {})",
+        klines.len(), is_start_idx, is_start_idx, oos_start_idx, is_date_str, oos_start_idx, klines.len(), oos_date_str, end_date_str
     );
 
     let rolling_window = 100;

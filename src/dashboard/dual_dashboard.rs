@@ -21,16 +21,29 @@ pub fn generate_dual_dashboard(
 
     let chart_data = export_equity_series(klines, &report_nom.equity_curve, &report_pct.equity_curve);
 
+    use chrono::TimeZone;
+    let oos_idx = (klines.len() * 8) / 10;
+    let is_start_date = klines
+        .first()
+        .and_then(|k| chrono::Utc.timestamp_millis_opt(k.timestamp).single())
+        .map(|dt| dt.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| "2020-04-20".to_string());
+    let oos_start_date = klines
+        .get(oos_idx)
+        .and_then(|k| chrono::Utc.timestamp_millis_opt(k.timestamp).single())
+        .map(|dt| dt.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| "2023-01-01".to_string());
+
     let params = DashboardModelParams {
         model_name: model_name.to_string(),
         tf: tf.to_string(),
         leverage,
         capital_percent,
         initial_capital: report_nom.initial_capital,
-        is_start_date: "2020-04-20".to_string(),
-        oos_start_date: "2023-01-01".to_string(),
+        is_start_date,
+        oos_start_date,
         is_start_idx: 0,
-        oos_start_idx: (klines.len() * 7) / 10,
+        oos_start_idx: oos_idx,
     };
 
     let summary = DashboardSummaryMetrics {
