@@ -40,24 +40,38 @@ impl SylvaTreeSampler {
     /// Genera una muestra exploratoria inicial respetando la relación estructural entre bloques
     pub fn sample_exploratory(&mut self) -> SylvaTreeCandidateConfig {
         // Bloque 1: Arquitectura y Capacidad del Árbol (Profundidad, Árboles, Hojas Mínimas)
-        let max_depth = (2 + (self.next_u32() % 5)) as usize; // Profundidad entre 2 y 6
-        let n_trees = match max_depth {
-            2 => (20 + (self.next_u32() % 35)) as usize, // 20..54
-            3 => (20 + (self.next_u32() % 30)) as usize, // 20..49
-            4 => (15 + (self.next_u32() % 25)) as usize, // 15..39
-            _ => (10 + (self.next_u32() % 20)) as usize, // 10..29 para árboles profundos
+        // Evita árboles profundos (depth 5-6) que memorizan ruido histórico
+        let is_macro = self.candidate_horizons.iter().any(|&h| h >= 2);
+        let max_depth = if is_macro {
+            (1 + (self.next_u32() % 3)) as usize // Profundidad 1..3 (Decision Stumps y árboles compactos)
+        } else {
+            (2 + (self.next_u32() % 3)) as usize // Profundidad 2..4
         };
-        let min_samples_leaf = (15 + (self.next_u32() % 35)) as usize; // 15..49
+
+        let n_trees = match max_depth {
+            1 | 2 => (15 + (self.next_u32() % 25)) as usize, // 15..39
+            3 => (15 + (self.next_u32() % 20)) as usize,     // 15..34
+            _ => (10 + (self.next_u32() % 15)) as usize,     // 10..24
+        };
+        let min_samples_leaf = if is_macro {
+            (35 + (self.next_u32() % 40)) as usize // 35..74 velas de evidencia mínima
+        } else {
+            (25 + (self.next_u32() % 30)) as usize // 25..54
+        };
 
         // Bloque 2: Dinámica Temporal y Tasa de Aprendizaje (Log-space)
         let log_lr = match max_depth {
-            2 | 3 => -4.0 + (self.next_f32() * 1.8), // e^-4.0 .. e^-2.2 (0.018 .. 0.11)
-            _ => -4.6 + (self.next_f32() * 1.5),     // e^-4.6 .. e^-3.1 (0.010 .. 0.045)
+            1 | 2 => -4.2 + (self.next_f32() * 1.5), // e^-4.2 .. e^-2.7 (0.015 .. 0.067)
+            _ => -4.8 + (self.next_f32() * 1.4),     // e^-4.8 .. e^-3.4 (0.008 .. 0.033)
         };
-        let learning_rate = log_lr.exp().clamp(0.008, 0.12);
+        let learning_rate = log_lr.exp().clamp(0.008, 0.07);
 
-        // Factor de olvido exponencial robusto (\delta \in [0.9950, 0.9998]) para preservar memoria estructural
-        let decay_factor = 0.9950 + (self.next_f32() * 0.0048);
+        // Factor de olvido exponencial robusto para preservar memoria de ciclos
+        let decay_factor = if is_macro {
+            0.9980 + (self.next_f32() * 0.0019) // 0.9980..0.9999
+        } else {
+            0.9960 + (self.next_f32() * 0.0035) // 0.9960..0.9995
+        };
 
         // Bloque 3: Regularización L1 / L2 y Período de Gracia
         let log_l2 = -1.5 + (self.next_f32() * 3.5); // 0.22 .. 7.38
@@ -101,23 +115,32 @@ impl SylvaTreeSampler {
         match block_to_mutate {
             0 => {
                 // Mutación Bloque 1: Arquitectura (Depth, Trees, Min Leaf)
+                let is_macro = self.candidate_horizons.iter().any(|&h| h >= 2);
                 let delta_d = (self.next_gaussian() * 0.8).round() as i32;
-                child.max_depth = ((child.max_depth as i32) + delta_d).clamp(2, 6) as usize;
+                child.max_depth = if is_macro {
+                    ((child.max_depth as i32) + delta_d).clamp(1, 3) as usize
+                } else {
+                    ((child.max_depth as i32) + delta_d).clamp(2, 4) as usize
+                };
 
-                let delta_t = (self.next_gaussian() * 5.0).round() as i32;
-                child.n_trees = ((child.n_trees as i32) + delta_t).clamp(10, 60) as usize;
+                let delta_t = (self.next_gaussian() * 4.0).round() as i32;
+                child.n_trees = ((child.n_trees as i32) + delta_t).clamp(10, 45) as usize;
 
                 let delta_leaf = (self.next_gaussian() * 4.0).round() as i32;
-                child.min_samples_leaf = ((child.min_samples_leaf as i32) + delta_leaf).clamp(10, 60) as usize;
+                child.min_samples_leaf = if is_macro {
+                    ((child.min_samples_leaf as i32) + delta_leaf).clamp(30, 80) as usize
+                } else {
+                    ((child.min_samples_leaf as i32) + delta_leaf).clamp(20, 60) as usize
+                };
             }
             1 => {
                 // Mutación Bloque 2: Dinámica Temporal (Learning Rate & Olvido Exponencial en espacio log)
                 let log_lr = child.learning_rate.ln() + self.next_gaussian() * 0.25;
-                child.learning_rate = log_lr.exp().clamp(0.005, 0.12);
+                child.learning_rate = log_lr.exp().clamp(0.005, 0.08);
 
                 // Mutación de decay factor
-                let delta_decay = self.next_gaussian() * 0.001;
-                child.decay_factor = (child.decay_factor + delta_decay).clamp(0.9940, 0.9999);
+                let delta_decay = self.next_gaussian() * 0.0008;
+                child.decay_factor = (child.decay_factor + delta_decay).clamp(0.9960, 0.9999);
             }
             2 => {
                 // Mutación Bloque 3: Regularización (L1, L2, Colsample, Grace)

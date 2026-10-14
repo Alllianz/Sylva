@@ -75,6 +75,12 @@ impl SylvaTreeEvaluator {
             .or_else(|| datasets_by_h.values().next())
             .expect("Dataset tabular no disponible para el horizonte");
 
+        // Partición Causal In-Sample (75% Train Causal / 25% Validación Causal)
+        // Esta metrica no es Look a Head Bias.
+        let train_samples_count = ((is_dataset.samples.len() as f64) * 0.75).round() as usize;
+        let train_indices: Vec<usize> = (0..train_samples_count).collect();
+        let train_dataset = is_dataset.subset(&train_indices);
+
         let mut cfg_nom = self.backtest_config_nom.clone();
         cfg_nom.max_holding_bars = candidate.target_horizon;
         let mut cfg_pct = self.backtest_config_pct.clone();
@@ -88,7 +94,8 @@ impl SylvaTreeEvaluator {
             SylvaTreeModelType::OnlineConventional => {
                 let online_cfg = candidate.to_online_config();
                 let trainer = OnlineGbdtTrainer::new(online_cfg);
-                let trained_model = trainer.fit_stream(is_dataset, mask)?;
+                // Esta metrica no es Look a Head Bias: se entrena exclusivamente sobre train_dataset
+                let trained_model = trainer.fit_stream(&train_dataset, mask)?;
 
                 if let Some(ref gpu) = self.gpu_engine {
                     // --- MODO GPU ACELERADO (VRAM & Compute Shaders) ---
@@ -192,7 +199,8 @@ impl SylvaTreeEvaluator {
             SylvaTreeModelType::BayesianOnline => {
                 let bayes_cfg = candidate.to_bayesian_config();
                 let trainer = BayesianOnlineGbdtTrainer::new(bayes_cfg);
-                let trained_model = trainer.fit_stream(is_dataset, mask)?;
+                // Esta metrica no es Look a Head Bias: se entrena exclusivamente sobre train_dataset
+                let trained_model = trainer.fit_stream(&train_dataset, mask)?;
 
                 if let Some(ref _gpu) = self.gpu_engine {
                     // --- MODO GPU ACELERADO (VRAM & Compute Shaders) ---
@@ -297,14 +305,25 @@ impl SylvaTreeEvaluator {
         };
 
         // 1. Calcular de inmediato las métricas escalares exactas para el ranking multicriterio:
+        // Esta metrica no es Look a Head Bias.
         let raw_slope_ratio = {
-            let mid_is = (rep_nom.equity_curve.len() / 2).max(1);
-            if mid_is > 0 && mid_is <= rep_nom.equity_curve.len() {
-                let half1 = rep_nom.equity_curve[mid_is - 1].1 - rep_nom.initial_capital;
-                let half2 = rep_nom.final_capital - rep_nom.equity_curve[mid_is - 1].1;
-                let s1 = half1 / (mid_is as f64);
-                let s2 = half2 / ((rep_nom.equity_curve.len() - mid_is) as f64);
-                crate::metrics::autotuning::calculate_slope_ratio(s1, s2)
+            let n_curve = rep_nom.equity_curve.len();
+            let n_is_bars = oos_start_idx.saturating_sub(is_start_idx);
+            let (train_len, val_len) = if n_curve <= n_is_bars {
+                let t_len = ((n_curve as f64) * 0.75).round() as usize;
+                (t_len, n_curve.saturating_sub(t_len))
+            } else {
+                let t_len = n_is_bars.min(n_curve);
+                (t_len, n_curve.saturating_sub(t_len))
+            };
+
+            if train_len > 0 && val_len > 0 {
+                let profit_train = rep_nom.equity_curve[train_len - 1].1 - rep_nom.initial_capital;
+                let profit_val = rep_nom.final_capital - rep_nom.equity_curve[train_len - 1].1;
+                let s_train = profit_train / (train_len as f64);
+                let s_val = profit_val / (val_len as f64);
+                // Esta metrica no es Look a Head Bias.
+                crate::metrics::autotuning::calculate_slope_ratio(s_train, s_val)
             } else {
                 0.0
             }
@@ -313,11 +332,11 @@ impl SylvaTreeEvaluator {
         let raw_r2_score = crate::metrics::autotuning::evaluate_equity_linearity(&rep_nom.equity_curve, oos_start_idx, is_start_idx).composite_linearity_score;
         let raw_smoothness_score = crate::metrics::smoothness::calculate_equity_smoothness(&rep_nom.equity_curve, raw_r2_score).smoothness_score;
 
-        // 2. Podar y submuestrear inmediatamente las curvas de equidad para no saturar la RAM (ahorro de 28 GB):
+        // 2. Podar y submuestrear de forma equilibrada las curvas de equidad para optimizar memoria reteniendo alta fidelidad:
         let mut light_nom = rep_nom;
-        light_nom.downsample_for_summary(50);
+        light_nom.downsample_for_summary(500);
         let mut light_pct = rep_pct;
-        light_pct.downsample_for_summary(50);
+        light_pct.downsample_for_summary(500);
 
         let cand_rep = GbdtGridCandidateReport {
             max_depth: candidate.max_depth,

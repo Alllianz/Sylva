@@ -52,6 +52,7 @@ impl ThresholdTuner {
                 total_tested += 1;
                 let mut model = model_factory(thr_l, thr_s);
                 let report = sim.run_range(&mut model, klines, is_start_idx, oos_start_idx);
+                // Esta metrica no es Look a Head Bias.
                 let fitness = evaluate_report_sylva_fitness(&report, oos_start_idx, is_start_idx);
 
                 if fitness > best_fitness {

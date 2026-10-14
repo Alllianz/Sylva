@@ -272,12 +272,27 @@ impl GbdtAutoTuner {
             &evaluated_candidates,
             |c| format!("{}-{}-{}-{:.4}", c.config.max_depth, c.config.min_samples_leaf, c.config.n_trees, c.config.learning_rate),
             |c| {
-                let mid_is = (c.report_nom.equity_curve.len() / 2).max(1);
-                let half1 = c.report_nom.equity_curve[mid_is - 1].1 - c.report_nom.initial_capital;
-                let half2 = c.report_nom.final_capital - c.report_nom.equity_curve[mid_is - 1].1;
-                let s1 = half1 / (mid_is as f64);
-                let s2 = half2 / ((c.report_nom.equity_curve.len() - mid_is) as f64);
-                calculate_slope_ratio(s1, s2)
+                // Esta metrica no es Look a Head Bias.
+                let n_curve = c.report_nom.equity_curve.len();
+                let n_is_bars = oos_start_idx.saturating_sub(is_start_idx);
+                let (train_len, val_len) = if n_curve <= n_is_bars {
+                    let t_len = ((n_curve as f64) * 0.75).round() as usize;
+                    (t_len, n_curve.saturating_sub(t_len))
+                } else {
+                    let t_len = n_is_bars.min(n_curve);
+                    (t_len, n_curve.saturating_sub(t_len))
+                };
+
+                if train_len > 0 && val_len > 0 {
+                    let profit_train = c.report_nom.equity_curve[train_len - 1].1 - c.report_nom.initial_capital;
+                    let profit_val = c.report_nom.final_capital - c.report_nom.equity_curve[train_len - 1].1;
+                    let s_train = profit_train / (train_len as f64);
+                    let s_val = profit_val / (val_len as f64);
+                    // Esta metrica no es Look a Head Bias.
+                    calculate_slope_ratio(s_train, s_val)
+                } else {
+                    0.0
+                }
             },
             |c| calculate_capital_max_dd_ratio(c.report_nom.final_capital, c.report_nom.max_drawdown_amount),
             |c| evaluate_equity_linearity(&c.report_nom.equity_curve, oos_start_idx, is_start_idx).composite_linearity_score,

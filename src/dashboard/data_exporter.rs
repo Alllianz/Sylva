@@ -30,14 +30,14 @@ pub fn export_equity_series(
 
         let dt = Utc.timestamp_millis_opt(ts_nom).unwrap();
         labels.push(dt.format("%Y-%m-%d %H:%M").to_string());
-        iso_dates.push(dt.format("%Y-%m-%d").to_string());
+        iso_dates.push(dt.format("%d-%m-%Y").to_string());
         timestamps.push(ts_nom);
         eq_nom.push((val_nom * 100.0).round() / 100.0);
         eq_pct.push((val_pct * 100.0).round() / 100.0);
     }
 
-    let min_date_str = iso_dates.first().cloned().unwrap_or_else(|| "2020-04-20".to_string());
-    let max_date_str = iso_dates.last().cloned().unwrap_or_else(|| "2026-08-14".to_string());
+    let min_date_str = iso_dates.first().cloned().unwrap_or_else(|| "20-04-2020".to_string());
+    let max_date_str = iso_dates.last().cloned().unwrap_or_else(|| "28-09-2026".to_string());
 
     ExportedChartData {
         labels_json: serde_json::to_string(&labels).unwrap_or_else(|_| "[]".to_string()),

@@ -61,22 +61,18 @@ pub fn evaluate_equity_linearity(
 
     let (r2_global, slope_global) = calculate_series_r2(curve);
 
-    let is_slice_len = if oos_start_idx > sim_start_idx {
-        oos_start_idx - sim_start_idx
-    } else {
-        curve.len() / 2
-    };
+    let total_bars = oos_start_idx.saturating_sub(sim_start_idx);
 
-    let is_slice = if is_slice_len <= curve.len() {
-        &curve[0..is_slice_len]
+    // Partición Causal Train vs Validation / In-Sample vs Out-Of-Sample.
+    // Esta metrica no es Look a Head Bias.
+    let (is_slice, oos_slice) = if curve.len() <= total_bars {
+        // Durante optimización y tuning In-Sample: 75% Train Causal y 25% Validación Causal no vista
+        let train_len = ((curve.len() as f64) * 0.75).round() as usize;
+        (&curve[0..train_len], &curve[train_len..])
     } else {
-        &curve[..]
-    };
-
-    let oos_slice = if is_slice_len < curve.len() {
-        &curve[is_slice_len..]
-    } else {
-        &curve[..]
+        // En evaluación completa (IS + OOS): IS es 0..total_bars y OOS es total_bars..
+        let is_len = total_bars.min(curve.len());
+        (&curve[0..is_len], &curve[is_len..])
     };
 
     let (r2_is, _) = calculate_series_r2(is_slice);
@@ -96,6 +92,7 @@ pub fn evaluate_equity_linearity(
 }
 
 pub fn calculate_slope_ratio(slope_is: f64, slope_oos: f64) -> f64 {
+    // Esta metrica no es Look a Head Bias.
     if slope_is > 0.0 && slope_oos > 0.0 {
         let ratio = slope_is / slope_oos;
         if ratio < 1.0 {
@@ -146,15 +143,66 @@ pub fn evaluate_report_sylva_fitness(
         return -100.0;
     }
     let lin_eval = evaluate_equity_linearity(&report.equity_curve, oos_start_idx, is_start_idx);
-    let mid_is = (report.equity_curve.len() / 2).max(1);
-    let half1_profit = report.equity_curve[mid_is - 1].1 - report.initial_capital;
-    let half2_profit = report.final_capital - report.equity_curve[mid_is - 1].1;
-    let slope1 = half1_profit / (mid_is as f64);
-    let slope2 = half2_profit / ((report.equity_curve.len() - mid_is) as f64);
-    let slope_ratio = calculate_slope_ratio(slope1, slope2);
+
+    // Partición Causal Train vs Validation (o IS vs OOS si la curva excede n_bars)
+    // Esta metrica no es Look a Head Bias.
+    let (slope_train, slope_val) = if report.equity_curve.len() <= n_bars {
+        let train_bars = ((report.equity_curve.len() as f64) * 0.75).round() as usize;
+        let val_bars = report.equity_curve.len().saturating_sub(train_bars);
+        if train_bars > 0 && val_bars > 0 {
+            let profit_train = report.equity_curve[train_bars - 1].1 - report.initial_capital;
+            let profit_val = report.final_capital - report.equity_curve[train_bars - 1].1;
+            let s_train = profit_train / (train_bars as f64);
+            let s_val = profit_val / (val_bars as f64);
+            (s_train, s_val)
+        } else {
+            (0.0, 0.0)
+        }
+    } else {
+        let is_bars = n_bars.min(report.equity_curve.len());
+        let oos_bars = report.equity_curve.len().saturating_sub(is_bars);
+        if is_bars > 0 && oos_bars > 0 {
+            let profit_is = report.equity_curve[is_bars - 1].1 - report.initial_capital;
+            let profit_oos = report.final_capital - report.equity_curve[is_bars - 1].1;
+            let s_is = profit_is / (is_bars as f64);
+            let s_oos = profit_oos / (oos_bars as f64);
+            (s_is, s_oos)
+        } else {
+            (0.0, 0.0)
+        }
+    };
+
+    // Esta metrica no es Look a Head Bias.
+    let slope_ratio = calculate_slope_ratio(slope_train, slope_val);
 
     let cap_dd_ratio = calculate_capital_max_dd_ratio(report.final_capital, report.max_drawdown_amount);
     calculate_autotuning_score(slope_ratio, cap_dd_ratio, lin_eval.composite_linearity_score)
 }
 
 pub use evaluate_report_sylva_fitness as evaluate_report_astro_fitness;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_slope_ratio_penalizes_negative_or_zero_validation() {
+        // Esta metrica no es Look a Head Bias.
+        assert_eq!(calculate_slope_ratio(10.0, -2.0), 0.0);
+        assert_eq!(calculate_slope_ratio(10.0, 0.0), 0.0);
+        assert_eq!(calculate_slope_ratio(-5.0, 5.0), 0.0);
+    }
+
+    #[test]
+    fn test_slope_ratio_rewards_consistent_positive_slopes() {
+        // Esta metrica no es Look a Head Bias.
+        let ratio_perfect = calculate_slope_ratio(5.0, 5.0);
+        assert_eq!(ratio_perfect, 1.0);
+
+        let ratio_moderate = calculate_slope_ratio(10.0, 8.0);
+        assert!((ratio_moderate - 0.8).abs() < 1e-6);
+
+        let ratio_growing = calculate_slope_ratio(5.0, 10.0);
+        assert!((ratio_growing - 0.5).abs() < 1e-6);
+    }
+}

@@ -82,10 +82,26 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
         .collect();
     let labels_str = timestamps_json.join(",");
 
-    let oos_rel_idx = summary.oos_start_idx.saturating_sub(summary.is_start_idx) / chart_step;
+    let oos_rel_idx = (summary.oos_start_idx.saturating_sub(summary.is_start_idx) / chart_step).min(chart_klines.len().saturating_sub(1));
+    let oos_date_str = if oos_rel_idx < chart_klines.len() {
+        chrono::DateTime::from_timestamp(chart_klines[oos_rel_idx].timestamp / 1000, 0)
+            .map(|t| t.format("%d-%m-%Y").to_string())
+            .unwrap_or_else(|| "OOS".to_string())
+    } else {
+        "OOS".to_string()
+    };
 
     // Datasets for Chart.js (Nominal and Percent / Compounded)
-    // Para no desbordar memoria RAM ni congelar el navegador, seleccionamos únicamente los mejores 20 candidatos
+    // Paleta de colores de alto contraste para distinguir hasta 20 curvas simultáneamente
+    const CANDIDATE_COLORS: [&str; 20] = [
+        "#00E676", "#00B0FF", "#FFD700", "#FF2E4D", "#AB47BC",
+        "#FF9100", "#00E5FF", "#F06292", "#76FF03", "#E040FB",
+        "#64FFDA", "#FFD600", "#448AFF", "#FF5252", "#B388FF",
+        "#69F0AE", "#FFAB40", "#18FFFF", "#FF4081", "#A7FFEB",
+    ];
+
+    // Datasets para Chart.js (Nominal y Compuesto)
+    // 1. Ordenar por Puesto Ponderado Sylva EVO ascendente (o Fitness IS descendente)
     let mut chart_candidates: Vec<&GbdtGridCandidateReport> = summary.candidates.iter().collect();
     chart_candidates.sort_by(|a, b| {
         if a.weighted_avg_rank > 0.0 && b.weighted_avg_rank > 0.0 {
@@ -98,39 +114,100 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
                 .unwrap_or(std::cmp::Ordering::Equal)
         }
     });
-    let top_chart_candidates = &chart_candidates[..chart_candidates.len().min(20)];
+
+    // 2. Deduplicación inteligente: asegurar que las 20 curvas representen arquitecturas diversas
+    let mut unique_candidates: Vec<&GbdtGridCandidateReport> = Vec::new();
+    let mut seen_configs = std::collections::HashSet::new();
+    for cand in &chart_candidates {
+        let key = format!("{}-{}-{}-{}", cand.target_horizon, cand.max_depth, cand.min_samples_leaf, cand.n_trees);
+        if seen_configs.insert(key) {
+            unique_candidates.push(*cand);
+        }
+    }
+    // Si la deduplicación dejó menos de 20, completar con los candidatos restantes disponibles
+    for cand in &chart_candidates {
+        if unique_candidates.len() >= 20 {
+            break;
+        }
+        if !unique_candidates.iter().any(|c| std::ptr::eq(*c, *cand)) {
+            unique_candidates.push(*cand);
+        }
+    }
+    let top_chart_candidates = &unique_candidates[..unique_candidates.len().min(20)];
 
     let mut datasets_nom_json = Vec::new();
     let mut datasets_pct_json = Vec::new();
-    for cand in top_chart_candidates {
+
+    let oos_start_ts = if oos_rel_idx < chart_klines.len() {
+        chart_klines[oos_rel_idx].timestamp
+    } else {
+        chart_klines.last().map(|k| k.timestamp).unwrap_or(0)
+    };
+
+    for (cand_idx, cand) in top_chart_candidates.iter().enumerate() {
         if cand.report_nom.equity_curve.is_empty() {
             continue;
         }
 
+        let curve_nom = &cand.report_nom.equity_curve;
+        let curve_pct = &cand.report_pct.equity_curve;
+
+        let first_ts = curve_nom.first().map(|p| p.0).unwrap_or(0);
+        let last_ts = curve_nom.last().map(|p| p.0).unwrap_or(0);
+        let last_val_nom = curve_nom.last().map(|p| p.1).unwrap_or(summary.initial_capital);
+        let last_val_pct = curve_pct.last().map(|p| p.1).unwrap_or(summary.initial_capital);
+
+        // Determinamos si el candidato cubrió el OOS comparando su timestamp final con el inicio de OOS
+        let covers_oos = last_ts >= oos_start_ts;
+
         let mut points_nom = Vec::with_capacity(chart_klines.len());
         let mut points_pct = Vec::with_capacity(chart_klines.len());
 
-        let nom_len = cand.report_nom.equity_curve.len();
-        let pct_len = cand.report_pct.equity_curve.len();
+        for kline in chart_klines.iter() {
+            let ts = kline.timestamp;
 
-        for (step_i, _k) in chart_klines.iter().enumerate() {
-            let nom_idx = (step_i * nom_len / chart_klines.len()).min(nom_len.saturating_sub(1));
-            let pct_idx = (step_i * pct_len / chart_klines.len()).min(pct_len.saturating_sub(1));
+            if ts < first_ts {
+                // Antes del inicio de la simulación
+                points_nom.push(format!("{:.2}", summary.initial_capital));
+                points_pct.push(format!("{:.2}", summary.initial_capital));
+            } else if ts <= last_ts {
+                // Búsqueda temporal binaria causal (0% Look-Ahead Bias): valor en ts o inmediatamente anterior
+                let idx_nom = match curve_nom.binary_search_by_key(&ts, |p| p.0) {
+                    Ok(i) => i,
+                    Err(i) => i.saturating_sub(1),
+                }.min(curve_nom.len().saturating_sub(1));
 
-            let val_nom = if nom_len > 0 { cand.report_nom.equity_curve[nom_idx].1 } else { summary.initial_capital };
-            let val_pct = if pct_len > 0 { cand.report_pct.equity_curve[pct_idx].1.max(1.0) } else { summary.initial_capital };
+                let idx_pct = match curve_pct.binary_search_by_key(&ts, |p| p.0) {
+                    Ok(i) => i,
+                    Err(i) => i.saturating_sub(1),
+                }.min(curve_pct.len().saturating_sub(1));
 
-            points_nom.push(format!("{:.2}", val_nom));
-            points_pct.push(format!("{:.2}", val_pct));
+                let val_n = curve_nom[idx_nom].1;
+                let val_p = curve_pct[idx_pct].1.max(1.0);
+                points_nom.push(format!("{:.2}", val_n));
+                points_pct.push(format!("{:.2}", val_p));
+            } else {
+                // Si el timestamp es posterior al último punto registrado por la curva
+                if covers_oos {
+                    // El candidato corrió en OOS y mantiene su capital final registrado
+                    points_nom.push(format!("{:.2}", last_val_nom));
+                    points_pct.push(format!("{:.2}", last_val_pct.max(1.0)));
+                } else {
+                    // El candidato solo corrió en In-Sample: se detiene limpiamente al iniciar OOS
+                    points_nom.push("null".to_string());
+                    points_pct.push("null".to_string());
+                }
+            }
         }
 
+        let curve_color = CANDIDATE_COLORS[cand_idx % CANDIDATE_COLORS.len()];
         let label_nom = format!(
-            "Tree (D:{}, Leaf:{}, T:{})",
-            cand.max_depth, cand.min_samples_leaf, cand.n_trees
+            "#{} D:{} L:{} T:{} (IS:{:.1})",
+            cand_idx + 1, cand.max_depth, cand.min_samples_leaf, cand.n_trees, cand.is_sylva_fitness
         );
         let label_pct = format!(
-            "Tree (D:{}, Leaf:{}, T:{}) (Comp.)",
-            cand.max_depth, cand.min_samples_leaf, cand.n_trees
+            "#{} D:{} L:{} T:{} (Comp.)",
+            cand_idx + 1, cand.max_depth, cand.min_samples_leaf, cand.n_trees
         );
 
         datasets_nom_json.push(format!(
@@ -139,16 +216,17 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
                 data: [{}],
                 borderColor: "{}",
                 backgroundColor: "{}",
-                borderWidth: 2.0,
+                borderWidth: 2.2,
                 pointRadius: 0,
-                pointHoverRadius: 4,
+                pointHoverRadius: 5,
                 tension: 0.1,
+                spanGaps: true,
                 fill: false
             }}"#,
             label_nom,
             points_nom.join(","),
-            cand.color,
-            cand.color
+            curve_color,
+            curve_color
         ));
 
         datasets_pct_json.push(format!(
@@ -157,16 +235,17 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
                 data: [{}],
                 borderColor: "{}",
                 backgroundColor: "{}",
-                borderWidth: 2.0,
+                borderWidth: 2.2,
                 pointRadius: 0,
-                pointHoverRadius: 4,
+                pointHoverRadius: 5,
                 tension: 0.1,
+                spanGaps: true,
                 fill: false
             }}"#,
             label_pct,
             points_pct.join(","),
-            cand.color,
-            cand.color
+            curve_color,
+            curve_color
         ));
     }
     let datasets_nom_str = datasets_nom_json.join(",\n");
@@ -209,6 +288,7 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
             format!("{:.2}", c.is_sylva_fitness)
         };
 
+        let row_color = CANDIDATE_COLORS[rank % CANDIDATE_COLORS.len()];
         table_rows.push_str(&format!(
             r#"<tr class="table-row">
                 <td class="rank-col"><span class="rank-badge rank-{}">{}</span> {}</td>
@@ -228,7 +308,7 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
             rank + 1,
             rank + 1,
             medal,
-            c.color,
+            row_color,
             c.max_depth,
             c.min_samples_leaf,
             c.n_trees,
@@ -798,23 +878,48 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
                 id: 'oosLine',
                 afterDraw: (chart) => {{
                     if (oosIndex > 0 && oosIndex < chart.data.labels.length) {{
-                        const meta = chart.getDatasetMeta(0);
-                        if (meta.data[oosIndex]) {{
-                            const x = meta.data[oosIndex].x;
+                        let x = null;
+                        if (chart.scales && chart.scales.x) {{
+                            x = chart.scales.x.getPixelForValue(oosIndex);
+                        }}
+                        if (x === null || isNaN(x)) {{
+                            const meta = chart.getDatasetMeta(0);
+                            if (meta && meta.data && meta.data[oosIndex]) {{
+                                x = meta.data[oosIndex].x;
+                            }}
+                        }}
+                        if (x !== null && !isNaN(x) && x >= chart.chartArea.left && x <= chart.chartArea.right) {{
                             const ctx = chart.ctx;
                             ctx.save();
                             ctx.beginPath();
                             ctx.moveTo(x, chart.chartArea.top);
                             ctx.lineTo(x, chart.chartArea.bottom);
-                            ctx.lineWidth = 2;
-                            ctx.setLineDash([6, 6]);
+                            ctx.lineWidth = 2.5;
+                            ctx.setLineDash([6, 5]);
                             ctx.strokeStyle = '#FF2E4D';
                             ctx.stroke();
 
-                            ctx.fillStyle = '#FF2E4D';
-                            ctx.font = 'bold 11px Montserrat';
+                            const text = '⚡ INICIO OUT-OF-SAMPLE: ' + '{oos_date_str}';
+                            ctx.font = 'bold 11px Montserrat, sans-serif';
+                            const textWidth = ctx.measureText(text).width;
+                            const badgeWidth = textWidth + 18;
+                            const badgeHeight = 22;
+                            const badgeX = Math.min(Math.max(x - badgeWidth / 2, chart.chartArea.left + 5), chart.chartArea.right - badgeWidth - 5);
+                            const badgeY = chart.chartArea.top + 6;
+
+                            ctx.fillStyle = 'rgba(255, 46, 77, 0.92)';
+                            ctx.beginPath();
+                            if (ctx.roundRect) {{
+                                ctx.roundRect(badgeX, badgeY, badgeWidth, badgeHeight, 5);
+                            }} else {{
+                                ctx.rect(badgeX, badgeY, badgeWidth, badgeHeight);
+                            }}
+                            ctx.fill();
+
+                            ctx.fillStyle = '#FFFFFF';
                             ctx.textAlign = 'center';
-                            ctx.fillText('⚡ INICIO OUT-OF-SAMPLE (OOS)', x, chart.chartArea.top + 18);
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText(text, badgeX + badgeWidth / 2, badgeY + badgeHeight / 2);
                             ctx.restore();
                         }}
                     }}
@@ -829,9 +934,11 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
             if (mode === 'nominal') {{
                 chart.data.datasets = datasetsNominal;
                 chart.options.scales.y.type = 'linear';
+                delete chart.options.scales.y.min;
             }} else {{
                 chart.data.datasets = datasetsCompuesto;
                 chart.options.scales.y.type = 'logarithmic';
+                chart.options.scales.y.min = 1;
             }}
             chart.update();
         }}
@@ -867,5 +974,6 @@ fn render_gbdt_grid_html(summary: &GbdtGridDashboardSummary, klines: &[Kline]) -
         table_rows = table_rows,
         top3_cards = top3_cards,
         oos_rel_idx = oos_rel_idx,
+        oos_date_str = oos_date_str,
     )
 }

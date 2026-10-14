@@ -304,6 +304,9 @@ impl SylvaTreeOptimizer {
             }
             champion.report_nom = sim_nom.run_range(&mut model_nom, klines, is_start_idx, klines.len());
             champion.report_pct = sim_pct.run_range(&mut model_pct, klines, is_start_idx, klines.len());
+            champion.candidate_report.report_nom = champion.report_nom.clone();
+            champion.candidate_report.report_pct = champion.report_pct.clone();
+            all_trials[0] = champion.clone();
         }
 
         println!("\n=======================================================================================================================================");
@@ -325,7 +328,75 @@ impl SylvaTreeOptimizer {
         println!("=======================================================================================================================================\n");
 
         let total_evaluated = all_trials.len();
-        let top_candidates: Vec<GbdtGridCandidateReport> = candidate_reports.iter().take(30).cloned().collect();
+
+        // 4. Seleccionar las mejores arquitecturas diversas para el Dashboard Comparativo (evitando clones repetidos)
+        let mut diverse_trials: Vec<SylvaTreeTrial> = Vec::new();
+        let mut seen_cfgs = std::collections::HashSet::new();
+        for trial in &all_trials {
+            let key = format!("{}-{}-{}-{}", trial.config.target_horizon, trial.config.max_depth, trial.config.min_samples_leaf, trial.config.n_trees);
+            if seen_cfgs.insert(key) {
+                diverse_trials.push(trial.clone());
+                if diverse_trials.len() >= 20 {
+                    break;
+                }
+            }
+        }
+        if diverse_trials.len() < 10 {
+            for trial in &all_trials {
+                if diverse_trials.len() >= 20 {
+                    break;
+                }
+                if !diverse_trials.iter().any(|t| t.trial_idx == trial.trial_idx) {
+                    diverse_trials.push(trial.clone());
+                }
+            }
+        }
+
+        // Para los mejores candidatos diversos, generar su curva completa de alta resolución (IS + OOS)
+        let top_candidates: Vec<GbdtGridCandidateReport> = diverse_trials
+            .into_iter()
+            .map(|mut trial| {
+                if trial.trial_idx == champion.trial_idx {
+                    trial.candidate_report.report_nom = champion.report_nom.clone();
+                    trial.candidate_report.report_pct = champion.report_pct.clone();
+                } else {
+                    let mut cfg_nom = self.backtest_config_nom.clone();
+                    cfg_nom.max_holding_bars = trial.config.target_horizon;
+                    let mut cfg_pct = self.backtest_config_pct.clone();
+                    cfg_pct.max_holding_bars = trial.config.target_horizon;
+                    let sim_n = BacktestSimulator::new(cfg_nom);
+                    let sim_p = BacktestSimulator::new(cfg_pct);
+
+                    let dset = datasets_by_h.get(&trial.config.target_horizon)
+                        .or_else(|| datasets_by_h.values().next());
+                    if let Some(dset) = dset {
+                        let online_cfg = trial.config.to_online_config();
+                        if let Ok(trainer) = OnlineGbdtTrainer::new(online_cfg).fit_stream(dset, mask) {
+                            let mut m_nom = OnlineGbdtEquationModel::new(
+                                trainer.clone(),
+                                trial.best_threshold_long,
+                                trial.best_threshold_short,
+                                self.config.rolling_window,
+                            ).with_cached_indicators(Arc::clone(&self.cached));
+                            let mut m_pct = OnlineGbdtEquationModel::new(
+                                trainer,
+                                trial.best_threshold_long,
+                                trial.best_threshold_short,
+                                self.config.rolling_window,
+                            ).with_cached_indicators(Arc::clone(&self.cached));
+                            if let Some(fmask) = mask {
+                                m_nom = m_nom.with_mask(fmask.clone());
+                                m_pct = m_pct.with_mask(fmask.clone());
+                            }
+                            trial.candidate_report.report_nom = sim_n.run_range(&mut m_nom, klines, is_start_idx, klines.len());
+                            trial.candidate_report.report_pct = sim_p.run_range(&mut m_pct, klines, is_start_idx, klines.len());
+                        }
+                    }
+                }
+                trial.candidate_report
+            })
+            .collect();
+
         let grid_summary = GbdtGridDashboardSummary {
             tf: tf.to_string(),
             is_start_idx,
@@ -335,10 +406,12 @@ impl SylvaTreeOptimizer {
         };
         let _ = generate_gbdt_grid_dashboard(&grid_summary, klines);
 
+        let final_candidate_reports: Vec<GbdtGridCandidateReport> = all_trials.iter().map(|t| t.candidate_report.clone()).collect();
+
         Ok(SylvaTreeAutoTuningResult {
             champion_trial: champion,
             all_trials,
-            candidate_reports,
+            candidate_reports: final_candidate_reports,
             total_evaluated,
         })
     }

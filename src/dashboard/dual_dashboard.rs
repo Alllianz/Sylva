@@ -22,17 +22,17 @@ pub fn generate_dual_dashboard(
     let chart_data = export_equity_series(klines, &report_nom.equity_curve, &report_pct.equity_curve);
 
     use chrono::TimeZone;
-    let oos_idx = (klines.len() * 8) / 10;
+    let oos_idx = ((klines.len() as f64) * 0.80).round() as usize;
     let is_start_date = klines
         .first()
         .and_then(|k| chrono::Utc.timestamp_millis_opt(k.timestamp).single())
-        .map(|dt| dt.format("%Y-%m-%d").to_string())
-        .unwrap_or_else(|| "2020-04-20".to_string());
+        .map(|dt| dt.format("%d-%m-%Y").to_string())
+        .unwrap_or_else(|| "20-04-2020".to_string());
     let oos_start_date = klines
         .get(oos_idx)
         .and_then(|k| chrono::Utc.timestamp_millis_opt(k.timestamp).single())
-        .map(|dt| dt.format("%Y-%m-%d").to_string())
-        .unwrap_or_else(|| "2023-01-01".to_string());
+        .map(|dt| dt.format("%d-%m-%Y").to_string())
+        .unwrap_or_else(|| "15-06-2025".to_string());
 
     let params = DashboardModelParams {
         model_name: model_name.to_string(),

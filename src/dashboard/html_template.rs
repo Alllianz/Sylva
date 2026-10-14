@@ -252,7 +252,7 @@ pub fn render_html_dashboard(
         <div class="header">
             <div class="header-title">
                 <h1>🚀 {model_name} | DASHBOARD DUAL DE BACKTEST</h1>
-                <p>Temporalidad: <strong>{tf}</strong> | Apalancamiento: <strong>{leverage:.0}X</strong> | Margen: <strong>{capital_percent:.1}%</strong> | Período: {min_date} a {max_date}</p>
+                <p>Temporalidad: <strong>{tf}</strong> | Apalancamiento: <strong>{leverage:.0}X</strong> | Margen: <strong>{capital_percent:.1}%</strong> | Período: <strong>{min_date}</strong> a <strong>{max_date}</strong> | In-Sample: <strong>{is_start_date}</strong> | <span style="color: #FF2E4D; font-weight: 800;">⚡ Out-Of-Sample (OOS): desde {oos_start_date}</span></p>
             </div>
             <div class="badge-tricolor">
                 ALLIANZ QUANT LAB
@@ -385,6 +385,7 @@ pub fn render_html_dashboard(
         const labels = {labels_json};
         const eqNom = {equity_nom_json};
         const eqPct = {equity_pct_json};
+        const oosIndex = {oos_idx};
 
         const datasetCompuesto = {{
             label: 'Cuenta Compuesta ($ - Escala Log)',
@@ -465,7 +466,58 @@ pub fn render_html_dashboard(
                         }}
                     }}
                 }}
-            }}
+            }},
+            plugins: [{{
+                id: 'oosLine',
+                afterDraw: (chart) => {{
+                    if (oosIndex > 0 && oosIndex < chart.data.labels.length) {{
+                        let x = null;
+                        if (chart.scales && chart.scales.x) {{
+                            x = chart.scales.x.getPixelForValue(oosIndex);
+                        }}
+                        if (x === null || isNaN(x)) {{
+                            const meta = chart.getDatasetMeta(0);
+                            if (meta && meta.data && meta.data[oosIndex]) {{
+                                x = meta.data[oosIndex].x;
+                            }}
+                        }}
+                        if (x !== null && !isNaN(x) && x >= chart.chartArea.left && x <= chart.chartArea.right) {{
+                            const ctx = chart.ctx;
+                            ctx.save();
+                            ctx.beginPath();
+                            ctx.moveTo(x, chart.chartArea.top);
+                            ctx.lineTo(x, chart.chartArea.bottom);
+                            ctx.lineWidth = 2.5;
+                            ctx.setLineDash([6, 5]);
+                            ctx.strokeStyle = '#FF2E4D';
+                            ctx.stroke();
+
+                            const text = '⚡ INICIO OUT-OF-SAMPLE: ' + '{oos_start_date}';
+                            ctx.font = 'bold 11px Montserrat, sans-serif';
+                            const textWidth = ctx.measureText(text).width;
+                            const badgeWidth = textWidth + 18;
+                            const badgeHeight = 22;
+                            const badgeX = Math.min(Math.max(x - badgeWidth / 2, chart.chartArea.left + 5), chart.chartArea.right - badgeWidth - 5);
+                            const badgeY = chart.chartArea.top + 6;
+
+                            ctx.fillStyle = 'rgba(255, 46, 77, 0.92)';
+                            ctx.beginPath();
+                            if (ctx.roundRect) {{
+                                ctx.roundRect(badgeX, badgeY, badgeWidth, badgeHeight, 5);
+                            }} else {{
+                                ctx.rect(badgeX, badgeY, badgeWidth, badgeHeight);
+                            }}
+                            ctx.fill();
+
+                            ctx.fillStyle = '#FFFFFF';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText(text, badgeX + badgeWidth / 2, badgeY + badgeHeight / 2);
+                            ctx.restore();
+                        }}
+                    }}
+                }}
+            }}]
         }});
 
         function switchMode(mode) {{
@@ -536,5 +588,8 @@ pub fn render_html_dashboard(
         labels_json = chart_data.labels_json,
         equity_nom_json = chart_data.equity_nom_json,
         equity_pct_json = chart_data.equity_pct_json,
+        oos_idx = params.oos_start_idx,
+        is_start_date = params.is_start_date,
+        oos_start_date = params.oos_start_date,
     )
 }
